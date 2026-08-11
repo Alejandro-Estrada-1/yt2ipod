@@ -64,6 +64,12 @@ class CleanupError(Yt2IpodError):
     """Error during temporary file cleanup."""
     pass
 
+
+class FileSystemError(Yt2IpodError):
+    """Error during filesystem operations on the target device."""
+    pass
+
+
 class ProcessExecutionError(Yt2IpodError):
     """Error when a subprocess exits with a non-zero code.
 
