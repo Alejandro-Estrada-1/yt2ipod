@@ -9,10 +9,7 @@ description = "Download music from YouTube, identify metadata via MusicBrainz, a
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
-dependencies = [
-    "httpx>=0.25.0",
-    "Pillow>=10.0.0",
-]
+dependencies = []
 authors = [
     { name = "yt2ipod contributors" },
 ]
@@ -33,8 +30,16 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+artwork = [
+    "httpx>=0.25.0",
+    "Pillow>=10.0.0",
+]
 tui = ["textual>=0.40.0"]
-all = ["textual>=0.40.0"]
+all = [
+    "httpx>=0.25.0",
+    "Pillow>=10.0.0",
+    "textual>=0.40.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",

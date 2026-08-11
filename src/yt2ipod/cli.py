@@ -7,10 +7,17 @@ The CLI dispatches to the appropriate interface mode based on arguments.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import sys
 from pathlib import Path
 
 from yt2ipod import __app_name__, __version__
+from yt2ipod.core.device.detection import DeviceDetector
+from yt2ipod.core.models.config import AppConfig
+from yt2ipod.core.pipeline.orchestrator import Pipeline
+from yt2ipod.core.transfer.manager import TransferManager
+from yt2ipod.interfaces.plain.handler import PlainCLIEventHandler
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,64 +104,137 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # Determine mode
+    # Dispatch to handlers
     if args.transfer:
-        return _handle_transfer(args)
+        return asyncio.run(_handle_transfer(args))
     elif args.import_local:
-        return _handle_import(args)
+        return asyncio.run(_handle_import(args))
     elif args.urls:
-        return _handle_automatic(args)
+        return asyncio.run(_handle_automatic(args))
     else:
         return _handle_interactive(args)
 
 
 def _handle_interactive(args: argparse.Namespace) -> int:
     """Launch interactive TUI mode."""
-    print(f"{__app_name__} {__version__}")
-    print()
-    print("Interactive mode is not yet implemented.")
-    print("Provide a YouTube URL to use automatic mode:")
-    print(f"  {__app_name__} <URL>")
-    print()
-    print("Use --plain for plain terminal output.")
-    return 0
+    try:
+        from yt2ipod.interfaces.textual.app import run_textual
+        detector = DeviceDetector()
+        return run_textual(detector=detector)
+    except ImportError as e:
+        print(f"[!] Warning: {e}", file=sys.stderr)
+        print("Please install textual dependencies via: pip install 'yt2ipod[tui]'", file=sys.stderr)
+        print("Or run using --plain mode for command line progress.", file=sys.stderr)
+        return 1
 
 
-def _handle_automatic(args: argparse.Namespace) -> int:
+async def _handle_automatic(args: argparse.Namespace) -> int:
     """Run the full pipeline for given URL(s)."""
-    interface = "json" if args.json else ("plain" if args.plain else "auto")
-    print(f"{__app_name__} {__version__}")
-    print(f"Mode: automatic ({interface})")
-    print()
+    config = AppConfig(
+        output_dir=args.output_dir,
+        keep_temp=args.keep_temp,
+    )
+
+    pipeline = Pipeline(config=config)
+    
+    if args.json:
+        # JSON output mode (emits events as JSON line by line)
+        def json_callback(event):
+            # Serialize basic events
+            event_name = event.__class__.__name__
+            data = {"event": event_name, **event.__dict__}
+            print(json.dumps(data))
+            sys.stdout.flush()
+
+        callback = json_callback
+    else:
+        # Plain terminal progress
+        handler = PlainCLIEventHandler(use_color=True)
+        callback = handler.handle_event
+
+    success = True
     for url in args.urls:
-        print(f"  URL: {url}")
-    print()
-    print("Pipeline is not yet implemented. Coming in Phase 3+.")
-    return 0
+        try:
+            await pipeline.run(
+                url_or_path=url,
+                output_dir=config.effective_output_dir,
+                event_callback=callback,
+                keep_temp=config.keep_temp,
+                transfer=not args.no_transfer,
+            )
+        except Exception as e:
+            if args.json:
+                print(json.dumps({"event": "Error", "message": str(e)}))
+            else:
+                print(f"\n[!] Error processing {url}: {e}", file=sys.stderr)
+            success = False
+
+    return 0 if success else 1
 
 
-def _handle_transfer(args: argparse.Namespace) -> int:
+async def _handle_transfer(args: argparse.Namespace) -> int:
     """Transfer existing files to a connected device."""
-    print(f"{__app_name__} {__version__}")
-    print("Transfer mode")
-    print()
+    detector = DeviceDetector()
+    manager = TransferManager()
+
+    devices = await detector.detect_devices()
+    if not devices:
+        print("[!] Error: No legacy Apple device detected.", file=sys.stderr)
+        return 1
+
+    device = devices[0]
+    print(f"[*] Detected device: {device.model} ({device.ios_version})")
+
+    file_paths = []
     for f in args.transfer:
-        print(f"  File: {f}")
-    print()
-    print("Transfer is not yet implemented. Coming in Phase 11.")
-    return 0
+        path = Path(f)
+        if not path.exists():
+            print(f"[!] Error: File not found: {f}", file=sys.stderr)
+            return 1
+        file_paths.append(path)
+
+    print(f"[*] Transferring {len(file_paths)} file(s)...")
+    result = await manager.transfer_files(file_paths, device)
+    if result.success:
+        print(f"[✓] Transfer completed successfully using {result.method.value if result.method else 'USB'}.")
+        return 0
+    else:
+        print(f"[!] Transfer failed: {', '.join(result.errors) if result.errors else 'Unknown error'}", file=sys.stderr)
+        return 1
 
 
-def _handle_import(args: argparse.Namespace) -> int:
+async def _handle_import(args: argparse.Namespace) -> int:
     """Import and process local audio files."""
-    print(f"{__app_name__} {__version__}")
-    print("Import mode")
-    print()
+    config = AppConfig(
+        output_dir=args.output_dir,
+        keep_temp=args.keep_temp,
+    )
+
+    pipeline = Pipeline(config=config)
+    handler = PlainCLIEventHandler(use_color=True)
+    callback = handler.handle_event
+
+    success = True
     for f in args.import_local:
-        print(f"  File: {f}")
-    print()
-    print("Local import is not yet implemented. Coming in Phase 4+.")
-    return 0
+        path = Path(f)
+        if not path.exists():
+            print(f"[!] Error: File not found: {f}", file=sys.stderr)
+            success = False
+            continue
+
+        try:
+            await pipeline.run(
+                url_or_path=str(path),
+                output_dir=config.effective_output_dir,
+                event_callback=callback,
+                keep_temp=config.keep_temp,
+                transfer=not args.no_transfer,
+            )
+        except Exception as e:
+            print(f"\n[!] Error importing {f}: {e}", file=sys.stderr)
+            success = False
+
+    return 0 if success else 1
 
 
 if __name__ == "__main__":

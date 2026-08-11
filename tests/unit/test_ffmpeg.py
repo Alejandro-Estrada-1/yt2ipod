@@ -1,5 +1,6 @@
 """Unit tests for the FFmpeg backend."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -114,7 +115,10 @@ class TestEmbedMetadata:
             track_number=2,
             track_total=10,
             date="2016",
-            genre="Indie Rock"
+            genre="Indie Rock",
+            musicbrainz_recording_id="rec-123",
+            musicbrainz_release_id="rel-456",
+            musicbrainz_artist_id="art-789",
         )
 
         await client.embed_metadata(Path("in.mp3"), Path("out.mp3"), metadata)
@@ -128,6 +132,9 @@ class TestEmbedMetadata:
         assert "date=2016" in cmd
         assert "genre=Indie Rock" in cmd
         assert "track=2/10" in cmd
+        assert "musicbrainz_trackid=rec-123" in cmd
+        assert "musicbrainz_albumid=rel-456" in cmd
+        assert "musicbrainz_artistid=art-789" in cmd
         assert "-c" in cmd
         assert "copy" in cmd
 
@@ -150,3 +157,79 @@ class TestEmbedMetadata:
         assert "mjpeg" in cmd
         assert "-disposition:v" in cmd
         assert "attached_pic" in cmd
+
+
+class TestProbe:
+    @pytest.mark.asyncio
+    @patch("yt2ipod.utils.runner.ProcessRunner.run")
+    async def test_probe_success(self, mock_run, client):
+        probe_json = {
+            "streams": [
+                {
+                    "codec_type": "audio",
+                    "codec_name": "mp3",
+                    "sample_rate": "44100",
+                    "channels": 2,
+                },
+                {
+                    "codec_type": "video",
+                    "codec_name": "mjpeg",
+                    "width": 500,
+                    "height": 500,
+                    "disposition": {
+                        "attached_pic": 1
+                    }
+                }
+            ],
+            "format": {
+                "bit_rate": "320000",
+                "duration": "245.365",
+                "size": "9814600"
+            }
+        }
+        mock_run.return_value = CommandResult(0, json.dumps(probe_json), "")
+
+        info = await client.probe(Path("audio.mp3"))
+
+        assert info.codec == "mp3"
+        assert info.sample_rate == 44100
+        assert info.channels == 2
+        assert info.bitrate == 320000
+        assert info.duration == 245.365
+        assert info.file_size == 9814600
+        assert info.has_artwork is True
+        assert info.artwork_width == 500
+        assert info.artwork_height == 500
+        assert info.is_valid_mp3 is True
+
+    @pytest.mark.asyncio
+    @patch("yt2ipod.utils.runner.ProcessRunner.run_stream")
+    async def test_convert_with_quality(self, mock_stream, client):
+        from yt2ipod.core.models.config import DownloadQuality
+
+        async def fake_stream(*args, **kwargs):
+            yield ("stderr", "time=00:00:10.00")
+
+        mock_stream.side_effect = fake_stream
+
+        # Run with quality config
+        events = []
+        async for event in client.convert_to_mp3(
+            Path("in.webm"), Path("out.mp3"), quality=DownloadQuality.HIGH, total_duration=100.0
+        ):
+            events.append(event)
+
+        assert len(events) == 2
+        assert events[0].percent == 10.0
+        assert events[1].percent == 100.0
+
+        # Verify ffmpeg was run with correct quality parameters
+        # Specifically, we should verify the arguments inside ProcessRunner.run_stream call
+        args = mock_stream.call_args[0][0]
+        assert "-q:a" in args
+        assert "2" in args  # DownloadQuality.HIGH is 2
+        assert "-ar" in args
+        assert "44100" in args
+        assert "-ac" in args
+        assert "2" in args
+

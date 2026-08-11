@@ -1,19 +1,21 @@
 """FFmpeg backend for audio conversion and metadata embedding.
 
 Acts as an adapter over the ffmpeg and ffprobe system binaries via ProcessRunner.
-Converts audio to MP3 320kbps and injects ID3v2 metadata with cover artwork.
+Converts audio to MP3 (44.1 kHz, stereo) and injects ID3v2 metadata with cover artwork.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+from yt2ipod.core.models.config import DownloadQuality
 from yt2ipod.core.models.errors import ConversionError, DependencyError, ProcessExecutionError
 from yt2ipod.core.models.events import ConversionProgress
-from yt2ipod.core.models.track import TrackMetadata
+from yt2ipod.core.models.track import AudioInfo, TrackMetadata
 from yt2ipod.utils.logging import get_logger
 from yt2ipod.utils.runner import ProcessRunner
 
@@ -87,14 +89,16 @@ class FFmpegClient:
         input_path: Path,
         output_path: Path,
         bitrate: str = "320k",
+        quality: DownloadQuality | None = None,
         total_duration: float | None = None,
     ) -> AsyncIterator[ConversionProgress]:
-        """Convert audio to MP3 and yield progress.
+        """Convert audio to MP3 (44.1 kHz, stereo) and yield progress.
 
         Args:
             input_path: Input file path.
             output_path: Output file path (.mp3).
-            bitrate: Audio bitrate (default 320k).
+            bitrate: Audio bitrate (used if quality is None).
+            quality: Configurable DownloadQuality (VBR).
             total_duration: Total duration of the track for progress calculation.
                             If None, get_duration will be called automatically.
 
@@ -107,15 +111,22 @@ class FFmpegClient:
         if total_duration is None:
             total_duration = await self.get_duration(input_path)
 
-        # ffmpeg -y -i input -c:a libmp3lame -b:a 320k output
         cmd = [
             self.ffmpeg,
             "-y",  # overwrite
             "-i", str(input_path),
             "-c:a", "libmp3lame",
-            "-b:a", bitrate,
-            str(output_path),
+            "-ar", "44100",
+            "-ac", "2",
         ]
+
+        if quality is not None:
+            # Map quality using LAME VBR scale (-q:a 0 is highest quality)
+            cmd.extend(["-q:a", str(quality.ffmpeg_quality)])
+        else:
+            cmd.extend(["-b:a", bitrate])
+
+        cmd.append(str(output_path))
 
         logger.info(f"Converting {input_path.name} to MP3...")
 
@@ -191,6 +202,14 @@ class FFmpegClient:
                 track_str += f"/{metadata.track_total}"
             meta_args.extend(["-metadata", f"track={track_str}"])
 
+        # MusicBrainz Identifiers
+        if metadata.musicbrainz_recording_id:
+            meta_args.extend(["-metadata", f"musicbrainz_trackid={metadata.musicbrainz_recording_id}"])
+        if metadata.musicbrainz_release_id:
+            meta_args.extend(["-metadata", f"musicbrainz_albumid={metadata.musicbrainz_release_id}"])
+        if metadata.musicbrainz_artist_id:
+            meta_args.extend(["-metadata", f"musicbrainz_artistid={metadata.musicbrainz_artist_id}"])
+
         if artwork_path and artwork_path.exists():
             # Add artwork as a second input stream
             cmd.extend(["-i", str(artwork_path)])
@@ -213,3 +232,91 @@ class FFmpegClient:
             await ProcessRunner.run(cmd, check=True)
         except ProcessExecutionError as e:
             raise ConversionError(f"Failed to embed metadata: {e.stderr.splitlines()[-1] if e.stderr else str(e)}") from e
+
+    async def probe(self, path: Path) -> AudioInfo:
+        """Probe a media file using ffprobe and return an AudioInfo object.
+
+        Args:
+            path: Path to the media file.
+
+        Returns:
+            Populated AudioInfo object.
+
+        Raises:
+            ConversionError: If ffprobe execution or parsing fails.
+        """
+        cmd = [
+            self.ffprobe,
+            "-v", "error",
+            "-show_format",
+            "-show_streams",
+            "-print_format", "json",
+            str(path),
+        ]
+        try:
+            result = await ProcessRunner.run(cmd, check=True)
+            data = json.loads(result.stdout)
+        except (ProcessExecutionError, json.JSONDecodeError, ValueError) as e:
+            raise ConversionError(f"Failed to probe file {path.name}: {e}") from e
+
+        # Extract streams
+        streams = data.get("streams", [])
+        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), {})
+        video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
+
+        # Extract format
+        fmt = data.get("format", {})
+
+        codec = audio_stream.get("codec_name", "")
+
+        try:
+            sample_rate = int(audio_stream.get("sample_rate", 0))
+        except (ValueError, TypeError):
+            sample_rate = 0
+
+        try:
+            channels = int(audio_stream.get("channels", 0))
+        except (ValueError, TypeError):
+            channels = 0
+
+        try:
+            bitrate = int(fmt.get("bit_rate", 0))
+        except (ValueError, TypeError):
+            bitrate = 0
+
+        try:
+            duration = float(fmt.get("duration", 0.0))
+        except (ValueError, TypeError):
+            duration = 0.0
+
+        try:
+            file_size = int(fmt.get("size", 0))
+        except (ValueError, TypeError):
+            file_size = 0
+
+        # Check for artwork (attached_pic or video/mjpeg stream)
+        has_artwork = False
+        artwork_width = 0
+        artwork_height = 0
+        if video_stream:
+            disposition = video_stream.get("disposition", {})
+            if disposition.get("attached_pic", 0) == 1 or video_stream.get("codec_name") == "mjpeg":
+                has_artwork = True
+                try:
+                    artwork_width = int(video_stream.get("width", 0))
+                    artwork_height = int(video_stream.get("height", 0))
+                except (ValueError, TypeError):
+                    pass
+
+        return AudioInfo(
+            codec=codec,
+            sample_rate=sample_rate,
+            channels=channels,
+            bitrate=bitrate,
+            duration=duration,
+            file_size=file_size,
+            has_artwork=has_artwork,
+            artwork_width=artwork_width,
+            artwork_height=artwork_height,
+        )
+

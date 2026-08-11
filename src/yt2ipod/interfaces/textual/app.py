@@ -1,0 +1,160 @@
+"""Textual TUI for yt2ipod (Phase 14).
+
+This module implements an interactive menu-driven TUI using the textual
+library. It consumes events, provides navigation, and displays device status.
+
+The TUI is optional: if textual is not installed, importing this module will
+raise ImportError.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import List, Optional
+
+try:
+    from textual.app import App, ComposeResult
+    from textual.widgets import Header, Footer, Static, ListView, ListItem
+    from textual.containers import Container
+    from textual.binding import Binding
+except ImportError as e:
+    raise ImportError("textual library is not installed. Install with: pip install 'yt2ipod[tui]'") from e
+
+from yt2ipod.core.device.detection import DeviceDetector
+
+MAIN_MENU = [
+    "Download from YouTube",
+    "Import local music",
+    "Select files",
+    "Device Info",
+    "Settings",
+    "About",
+]
+
+
+class DeviceStatus(Static):
+    """Widget to display the status and capabilities of connected devices."""
+
+    def update_status(self, lines: List[str]) -> None:
+        self.update("\n".join(lines))
+
+
+class YT2iPodApp(App):
+    """The main Textual application for yt2ipod."""
+
+    CSS = """
+    #title {
+        text-align: center;
+        text-style: bold;
+        background: $accent;
+        color: $text;
+        padding: 1;
+        margin-bottom: 1;
+    }
+    #device-status {
+        background: $surface;
+        color: $text-muted;
+        border: solid $primary;
+        padding: 1;
+        margin-top: 1;
+        height: 6;
+    }
+    #placeholder {
+        align: center middle;
+        text-align: center;
+        background: $panel;
+        border: double $accent;
+        padding: 3;
+    }
+    """
+
+    BINDINGS = [
+        Binding("b", "go_back", "Back"),
+        Binding("d", "refresh_devices", "Refresh Devices"),
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def __init__(self, detector: DeviceDetector | None = None, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.nav_stack: List[str] = ["main"]
+        self.detector = detector or DeviceDetector()
+        self.menu_list: Optional[ListView] = None
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with Container():
+            yield Static("yt2ipod - Music to Legacy Devices", id="title")
+            self.menu_list = ListView(*[ListItem(Static(m)) for m in MAIN_MENU], id="main-menu")
+            yield self.menu_list
+            yield DeviceStatus("No device detected", id="device-status")
+        yield Footer()
+
+    async def on_mount(self) -> None:
+        if self.menu_list:
+            self.set_focus(self.menu_list)
+        # Initial device detection
+        await self.action_refresh_devices()
+
+    def action_go_back(self) -> None:
+        if len(self.nav_stack) > 1:
+            self.nav_stack.pop()
+            # If we pushed a placeholder screen, pop it off Textual screen stack
+            if len(self.screen_stack) > 1:
+                self.pop_screen()
+
+    async def action_refresh_devices(self) -> None:
+        """Query connected devices and update the status widget."""
+        ds = self.query_one("#device-status", DeviceStatus)
+        ds.update_status(["Detecting devices..."])
+
+        try:
+            devices = await self.detector.detect_devices()
+            if not devices:
+                ds.update_status(["[yellow]No device detected[/yellow]"])
+            else:
+                lines = [f"[green]{len(devices)} device(s) detected:[/green]"]
+                for d in devices:
+                    caps = d.capabilities
+                    lines.append(
+                        f"• {d.model} ({d.ios_version}) - USB: {caps.usb}, "
+                        f"AFC: {caps.afc}, SSH: {caps.ssh}, USB-SSH: {caps.usb_ssh}"
+                    )
+                ds.update_status(lines)
+        except Exception as e:
+            ds.update_status([f"[red]Device detection failed: {e}[/red]"])
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        # Handle selection from main menu
+        selected = event.item
+        label = ""
+        # Get label text safely
+        if selected and selected.children:
+            static_widget = selected.children[0]
+            if isinstance(static_widget, Static):
+                label = str(static_widget.renderable)
+
+        if not label:
+            label = "Menu Item"
+
+        self.nav_stack.append(label)
+        self.push_screen_placeholder(label)
+
+    def push_screen_placeholder(self, title: str) -> None:
+        # Show a simple screen placeholder
+        placeholder = Static(
+            f"[bold]{title}[/bold]\n\n"
+            f"This screen is a placeholder in Phase 14.\n\n"
+            f"[bold]B[/bold] Back | [bold]Q[/bold] Quit",
+            id="placeholder"
+        )
+        self.push_screen(App()._create_screen(placeholder))
+
+
+def run_textual(detector: DeviceDetector | None = None) -> int:
+    app = YT2iPodApp(detector=detector)
+    app.run()
+    return 0
+
+
+if __name__ == "__main__":
+    run_textual()
