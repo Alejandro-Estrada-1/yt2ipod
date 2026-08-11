@@ -66,5 +66,6 @@ async def test_detect_one_device_with_tools(mock_run, mock_which):
     assert d.is_connected is True
     assert d.capabilities.usb is True
     assert d.capabilities.afc is True
+    assert d.capabilities.afc2 is True
     assert d.capabilities.usb_ssh is True
     assert d.capabilities.ssh is True

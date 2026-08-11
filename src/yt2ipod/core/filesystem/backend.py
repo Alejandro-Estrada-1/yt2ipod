@@ -116,11 +116,23 @@ class IfuseAFCBackend(FileSystemBackend):
     Automates mount and unmount operations using ifuse and fusermount.
     """
 
-    def __init__(self, mount_point: Path, udid: str | None = None) -> None:
+    def __init__(self, mount_point: Path, udid: str | None = None, is_afc2: bool = False) -> None:
         self.mount_point = Path(mount_point).resolve()
         self.udid = udid
+        self.is_afc2 = is_afc2
         self._mounted = False
         self._local = LocalBackend(self.mount_point)
+
+    def _sanitize_path(self, path: Path) -> Path:
+        """Translate absolute iOS device paths to paths relative to the mount point."""
+        p_str = str(path)
+        if not self.is_afc2 and p_str.startswith("/var/mobile/Media"):
+            # ifuse standard mounts /var/mobile/Media at the mount point root.
+            rel = p_str[len("/var/mobile/Media"):].lstrip("/")
+            return Path(rel or ".")
+        if p_str.startswith("/"):
+            return Path(p_str.lstrip("/"))
+        return path
 
     async def mount(self) -> None:
         """Mount the device to the mount point."""
@@ -131,6 +143,8 @@ class IfuseAFCBackend(FileSystemBackend):
         cmd = ["ifuse"]
         if self.udid:
             cmd.extend(["-u", self.udid])
+        if self.is_afc2:
+            cmd.extend(["--service", "com.apple.afc2"])
         cmd.append(str(self.mount_point))
 
         try:
@@ -165,27 +179,33 @@ class IfuseAFCBackend(FileSystemBackend):
 
     async def list(self, path: Path) -> list[Path]:
         await self._ensure_mounted()
-        return await self._local.list(path)
+        sanitized = self._sanitize_path(path)
+        return await self._local.list(sanitized)
 
     async def upload(self, local_paths: Iterable[Path], remote_dir: Path) -> None:
         await self._ensure_mounted()
-        await self._local.upload(local_paths, remote_dir)
+        sanitized = self._sanitize_path(remote_dir)
+        await self._local.upload(local_paths, sanitized)
 
     async def download(self, remote_path: Path, local_path: Path) -> None:
         await self._ensure_mounted()
-        await self._local.download(remote_path, local_path)
+        sanitized = self._sanitize_path(remote_path)
+        await self._local.download(sanitized, local_path)
 
     async def delete(self, remote_path: Path) -> None:
         await self._ensure_mounted()
-        await self._local.delete(remote_path)
+        sanitized = self._sanitize_path(remote_path)
+        await self._local.delete(sanitized)
 
     async def mkdir(self, remote_dir: Path) -> None:
         await self._ensure_mounted()
-        await self._local.mkdir(remote_dir)
+        sanitized = self._sanitize_path(remote_dir)
+        await self._local.mkdir(sanitized)
 
     async def exists(self, remote_path: Path) -> bool:
         await self._ensure_mounted()
-        return await self._local.exists(remote_path)
+        sanitized = self._sanitize_path(remote_path)
+        return await self._local.exists(sanitized)
 
 
 class SSHBackend(FileSystemBackend):

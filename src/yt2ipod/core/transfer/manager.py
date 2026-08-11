@@ -76,7 +76,7 @@ class TransferManager:
             elif m_str == "afc2" and caps.afc2 and caps.usb:
                 try:
                     mount_dir = self.temp_manager.create_temp_dir(prefix="mnt-afc2-")
-                    backend = IfuseAFCBackend(mount_point=mount_dir, udid=device.serial)
+                    backend = IfuseAFCBackend(mount_point=mount_dir, udid=device.serial, is_afc2=True)
                     await backend.mount()
                     return backend, TransferMethod.AFC2, None
                 except Exception as e:

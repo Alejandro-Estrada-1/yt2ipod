@@ -104,7 +104,7 @@ class DeviceDetector:
             caps = DeviceCapabilities(
                 usb=True,
                 afc=has_ifuse,
-                afc2=False,  # Can only be verified on mount try, default False
+                afc2=has_ifuse,  # Enable so TransferManager can attempt com.apple.afc2 service mount
                 ssh=bool(wifi_address) and has_ssh,
                 usb_ssh=has_iproxy and has_ssh,
                 root_filesystem=False, # Standard is media-only
