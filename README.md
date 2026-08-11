@@ -106,16 +106,22 @@ sudo dnf install yt-dlp ffmpeg openssh usbmuxd libimobiledevice ifuse
 
 ## Installation
 
+The easiest way to install `yt2ipod` and verify its system dependencies is using the provided automated script:
+
 ```bash
 # Clone the repository
 git clone https://github.com/yt2ipod/yt2ipod.git
 cd yt2ipod
 
-# Install in development mode
-pip install -e ".[dev]"
+# Run the automated installer
+./scripts/install.sh
+```
 
-# Or with all optional dependencies
-pip install -e ".[all,dev]"
+The installer will verify if you have the required system dependencies (`ffmpeg`, `yt-dlp`, `iproxy`, `ifuse`) and install the python package inside your active virtual environment or user site.
+
+To uninstall, simply run:
+```bash
+./scripts/uninstall.sh
 ```
 
 ## Usage
