@@ -3,36 +3,117 @@
 Uses the standard library (urllib) wrapped in asyncio.to_thread to maintain
 zero external dependencies while remaining asynchronous. Implements a scoring
 algorithm to find the best album match for a given track.
+
+Centralizes rate limiting (1 request per second per MusicBrainz policy)
+and User-Agent configuration.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from difflib import SequenceMatcher
 from typing import Any, Dict, List
 
-from yt2ipod import __version__
+from yt2ipod import __app_name__, __version__
 from yt2ipod.core.models.errors import MetadataError
 from yt2ipod.core.models.track import Track, TrackMetadata
 from yt2ipod.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-USER_AGENT = f"yt2ipod/{__version__} ( https://github.com/yt2ipod/yt2ipod )"
 BASE_URL = "https://musicbrainz.org/ws/2"
 
 # Allowed duration difference in milliseconds
 MAX_DURATION_DIFF_MS = 20000  # 20 seconds
 
 
+def _build_artist_credit_string(artist_credit: List[Dict[str, Any]]) -> str:
+    """Concatenate all artist credits with their joinphrases.
+
+    MusicBrainz artist-credit is a list like:
+        [{"name": "Little Jesus", "joinphrase": ", "},
+         {"name": "Ximena Sariñana", "joinphrase": ", "},
+         {"name": "Elsa y Elmar"}]
+
+    This produces: "Little Jesus, Ximena Sariñana, Elsa y Elmar"
+    """
+    if not artist_credit:
+        return ""
+    parts: list[str] = []
+    for entry in artist_credit:
+        name = entry.get("name", "")
+        if not name:
+            # Fallback to nested artist object
+            artist_obj = entry.get("artist", {})
+            name = artist_obj.get("name", "")
+        parts.append(name)
+        joinphrase = entry.get("joinphrase", "")
+        if joinphrase:
+            parts.append(joinphrase)
+    return "".join(parts)
+
+
+def _extract_artist_id(artist_credit: List[Dict[str, Any]]) -> str:
+    """Extract the primary artist ID from artist credits."""
+    if not artist_credit:
+        return ""
+    first = artist_credit[0]
+    artist_obj = first.get("artist", {})
+    return artist_obj.get("id", "")
+
+
+def _similarity(a: str, b: str) -> float:
+    """Calculate string similarity ratio (0.0 to 1.0)."""
+    if not a or not b:
+        return 0.0
+    a_n = a.lower().strip()
+    b_n = b.lower().strip()
+    if a_n == b_n:
+        return 1.0
+    return SequenceMatcher(None, a_n, b_n).ratio()
+
+
 class MusicBrainzClient:
-    """Client for querying the MusicBrainz API."""
+    """Client for querying the MusicBrainz API.
+
+    All HTTP requests go through this client, which enforces:
+    - A configurable User-Agent (required by MusicBrainz)
+    - Rate limiting (1 request per second by default)
+    - Retry logic for transient failures
+
+    No other module should make direct HTTP requests to MusicBrainz.
+    """
+
+    def __init__(
+        self,
+        app_name: str = __app_name__,
+        version: str = __version__,
+        contact_url: str = "https://github.com/yt2ipod/yt2ipod",
+        rate_limit_seconds: float = 1.0,
+        timeout: float = 10.0,
+    ) -> None:
+        self.user_agent = f"{app_name}/{version} ({contact_url})"
+        self.rate_limit_seconds = rate_limit_seconds
+        self.timeout = timeout
+        self._last_request_time: float = 0.0
+        self._rate_lock = asyncio.Lock()
+
+    def _enforce_rate_limit(self) -> None:
+        """Block until at least rate_limit_seconds since last request."""
+        now = time.monotonic()
+        elapsed = now - self._last_request_time
+        wait = self.rate_limit_seconds - elapsed
+        if wait > 0:
+            time.sleep(wait)
+        self._last_request_time = time.monotonic()
 
     def _sync_get(self, url: str) -> Dict[str, Any]:
-        """Synchronous HTTP GET using urllib.
+        """Synchronous HTTP GET using urllib with rate limiting.
 
         Args:
             url: The full URL to fetch.
@@ -43,15 +124,17 @@ class MusicBrainzClient:
         Raises:
             MetadataError: On HTTP or parsing errors.
         """
+        self._enforce_rate_limit()
+
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": USER_AGENT,
+                "User-Agent": self.user_agent,
                 "Accept": "application/json",
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 data = response.read()
                 return json.loads(data)
         except urllib.error.HTTPError as e:
@@ -64,8 +147,13 @@ class MusicBrainzClient:
             raise MetadataError("Failed to parse MusicBrainz JSON response.") from e
 
     async def _async_get(self, url: str) -> Dict[str, Any]:
-        """Asynchronous wrapper for _sync_get."""
-        return await asyncio.to_thread(self._sync_get, url)
+        """Asynchronous wrapper for _sync_get.
+
+        Uses asyncio.Lock to serialize requests (MusicBrainz requires
+        at most 1 request per second per application).
+        """
+        async with self._rate_lock:
+            return await asyncio.to_thread(self._sync_get, url)
 
     async def search_recordings(self, title: str, artist: str) -> List[Dict[str, Any]]:
         """Search for a recording by title and artist.
@@ -77,7 +165,6 @@ class MusicBrainzClient:
         Returns:
             List of recording dictionaries.
         """
-        # Lucene query syntax
         query = f'recording:"{title}" AND artist:"{artist}"'
         params = {
             "query": query,
@@ -86,11 +173,39 @@ class MusicBrainzClient:
         }
         query_string = urllib.parse.urlencode(params)
         url = f"{BASE_URL}/recording/?{query_string}"
-        
+
         logger.debug(f"MusicBrainz search: {url}")
-        
+
         data = await self._async_get(url)
         return data.get("recordings", [])
+
+    async def get_recording(self, recording_id: str, inc: str = "releases+artists") -> Dict[str, Any]:
+        """Fetch full recording details by ID.
+
+        Args:
+            recording_id: MusicBrainz recording UUID.
+            inc: Sub-queries to include.
+
+        Returns:
+            Recording dictionary with included data.
+        """
+        encoded_id = urllib.parse.quote(recording_id)
+        url = f"{BASE_URL}/recording/{encoded_id}?inc={inc}&fmt=json"
+        return await self._async_get(url)
+
+    async def get_release(self, release_id: str, inc: str = "artists+labels+media+release-groups") -> Dict[str, Any]:
+        """Fetch full release details by ID.
+
+        Args:
+            release_id: MusicBrainz release UUID.
+            inc: Sub-queries to include.
+
+        Returns:
+            Release dictionary with included data.
+        """
+        encoded_id = urllib.parse.quote(release_id)
+        url = f"{BASE_URL}/release/{encoded_id}?inc={inc}&fmt=json"
+        return await self._async_get(url)
 
     def _score_release(self, recording: Dict[str, Any], track: Track) -> tuple[int, TrackMetadata | None]:
         """Score a recording/release match. Higher is better.
@@ -99,16 +214,25 @@ class MusicBrainzClient:
             Tuple of (score, TrackMetadata) or (0, None) if completely invalid.
         """
         score = 100
-        
+
         # 1. Duration check
         mb_length = recording.get("length")
         if mb_length and track.youtube_duration > 0:
             mb_duration_sec = mb_length / 1000.0
             diff = abs(mb_duration_sec - track.youtube_duration)
             if diff > (MAX_DURATION_DIFF_MS / 1000.0):
-                score -= 150  # Huge penalty for duration mismatch (e.g. Radio Edit vs Extended)
+                score -= 150  # Huge penalty for duration mismatch
             else:
                 score -= int(diff)  # Small penalty for minor differences
+
+        # 2. Title similarity bonus
+        title_sim = _similarity(recording.get("title", ""), track.youtube_title)
+        score += int(title_sim * 20)
+
+        # 3. Artist similarity bonus
+        rec_artist = _build_artist_credit_string(recording.get("artist-credit", []))
+        artist_sim = _similarity(rec_artist, track.youtube_artist)
+        score += int(artist_sim * 15)
 
         releases = recording.get("releases", [])
         if not releases:
@@ -119,53 +243,69 @@ class MusicBrainzClient:
 
         for release in releases:
             rel_score = score
-            
+
             # Prefer primary types
             rg = release.get("release-group", {})
             primary_type = rg.get("primary-type", "")
             secondary_types = rg.get("secondary-types", [])
             status = release.get("status", "")
-            
+
             if primary_type == "Album":
                 rel_score += 50
             elif primary_type == "Single":
                 rel_score += 10
             elif primary_type == "EP":
                 rel_score += 20
-                
+
             # Penalize compilations, live, bootlegs
             if "Compilation" in secondary_types:
                 rel_score -= 30
             if "Live" in secondary_types:
                 rel_score -= 40
-            if status == "Bootleg" or status == "Promotion":
+            if status in ("Bootleg", "Promotion"):
                 rel_score -= 50
 
             if rel_score > best_release_score:
                 best_release_score = rel_score
-                
-                # Extract metadata
+
+                # Extract track position from media
                 media = release.get("media", [{}])[0]
-                tracks = media.get("track", [{}])
-                track_data = tracks[0] if tracks else {}
-                
-                # Use artist credit from the recording if available, else fallback
-                artist_credit = recording.get("artist-credit", [])
-                artist_name = artist_credit[0].get("name", "") if artist_credit else ""
-                
-                album_artist_credit = release.get("artist-credit", [])
-                album_artist_name = album_artist_credit[0].get("name", "") if album_artist_credit else artist_name
+                track_list = media.get("track", [])
+                track_data = track_list[0] if track_list else {}
+
+                # Parse track number — MB returns it as a string
+                raw_number = track_data.get("number")
+                track_number: int | None = None
+                if raw_number is not None:
+                    try:
+                        track_number = int(raw_number)
+                    except (ValueError, TypeError):
+                        track_number = None
+
+                track_total = media.get("track-count")
+
+                # Build full artist string from all credits with joinphrase
+                recording_artist_credit = recording.get("artist-credit", [])
+                artist_name = _build_artist_credit_string(recording_artist_credit)
+
+                # Album artist: from the release credits (primary artist only)
+                release_artist_credit = release.get("artist-credit", [])
+                album_artist_name = _build_artist_credit_string(release_artist_credit) or artist_name
+
+                # Extract artist IDs
+                recording_artist_id = _extract_artist_id(recording_artist_credit)
 
                 best_meta = TrackMetadata(
                     title=recording.get("title", ""),
                     artist=artist_name,
                     album=release.get("title", ""),
                     album_artist=album_artist_name,
-                    track_number=track_data.get("number"),
-                    track_total=media.get("track-count"),
-                    date=release.get("date", "")[:4] if release.get("date") else "", # Just year
+                    track_number=track_number,
+                    track_total=track_total,
+                    date=release.get("date", "")[:4] if release.get("date") else "",
                     musicbrainz_recording_id=recording.get("id", ""),
                     musicbrainz_release_id=release.get("id", ""),
+                    musicbrainz_artist_id=recording_artist_id,
                 )
 
         return best_release_score, best_meta
@@ -183,9 +323,10 @@ class MusicBrainzClient:
         # Clean up title/artist for search
         # Strip common youtube suffixes like (Official Video), [Audio], etc.
         clean_title = track.youtube_title
-        for suffix in ["(Official Video)", "[Official Audio]", "(Lyric Video)", "[Audio]"]:
+        for suffix in ["(Official Video)", "[Official Audio]", "(Lyric Video)", "[Audio]",
+                        "(Official Music Video)", "(Audio)", "[Official Video]"]:
             clean_title = clean_title.replace(suffix, "").strip()
-            
+
         clean_artist = track.youtube_artist.replace("- Topic", "").strip()
 
         recordings = await self.search_recordings(clean_title, clean_artist)
@@ -206,5 +347,5 @@ class MusicBrainzClient:
 
         # Normalize confidence roughly (150 is a perfect album match)
         confidence = max(0.0, min(1.0, (best_score + 50) / 200.0))
-        
+
         return confidence, best_meta

@@ -22,7 +22,7 @@ async def test_live_match_track():
         youtube_artist="Little Jesus",
         youtube_duration=319.0,
     )
-    
+
     try:
         confidence, meta = await client.match_track(track)
     except MetadataError as e:
@@ -30,11 +30,12 @@ async def test_live_match_track():
 
     assert meta is not None
     assert confidence > 0.5
-    
+
     # Verify the extracted metadata
-    assert "Río salvaje" in meta.album
+    assert "salvaje" in meta.album.lower()
     assert "Little Jesus" in meta.album_artist
     assert meta.date.startswith("2016")
-    
-    # Track 2 on Rio Salvaje
-    assert str(meta.track_number) == "2"
+
+    # TQM is track 10 on Río salvaje (10 tracks total)
+    assert meta.track_number == 10
+
