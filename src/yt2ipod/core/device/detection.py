@@ -117,7 +117,7 @@ class DeviceDetector:
                 model_identifier=model or "Unknown",
                 ios_version=ios_version or "Unknown",
                 architecture=arch,
-                serial=serial or udid,
+                serial=udid,
                 connection=ConnectionType.USB,
                 jailbreak_status=JailbreakStatus.UNKNOWN, # Default unless we check afc2/ssh
                 root_access=False,

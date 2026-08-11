@@ -62,7 +62,7 @@ async def test_detect_one_device_with_tools(mock_run, mock_which):
     assert d.model == "Ale's iPod"
     assert d.model_identifier == "iPod5,1"
     assert d.ios_version == "9.3.5"
-    assert d.serial == "SN123456"
+    assert d.serial == "abcd-udid"
     assert d.is_connected is True
     assert d.capabilities.usb is True
     assert d.capabilities.afc is True
