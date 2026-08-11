@@ -82,7 +82,7 @@ class DeviceStorageLayout:
     """
 
     media_root: str = "/var/mobile/Media/"
-    music_directory: str = "/var/mobile/Media/Music/"
+    music_directory: str = "/var/mobile/Media/"
     writable_paths: list[str] = field(default_factory=list)
 
     @property

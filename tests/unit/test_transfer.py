@@ -75,7 +75,7 @@ class TestDeviceStorageLayout:
     def test_defaults(self):
         layout = DeviceStorageLayout()
         assert layout.media_root == "/var/mobile/Media/"
-        assert layout.default_destination == "/var/mobile/Media/Music/"
+        assert layout.default_destination == "/var/mobile/Media/"
 
     def test_custom_paths(self):
         layout = DeviceStorageLayout(
