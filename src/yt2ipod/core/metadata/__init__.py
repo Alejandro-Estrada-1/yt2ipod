@@ -1,0 +1,1 @@
+"""Metadata identification and resolution."""
