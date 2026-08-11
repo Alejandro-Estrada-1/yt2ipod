@@ -67,7 +67,7 @@ class DeviceCapabilities:
             ("USB-SSH", self.usb_ssh),
         ]
         return [
-            f"{'✓' if available else '✗'} {name}"
+            f"{'OK' if available else 'NO'} {name}"
             for name, available in checks
         ]
 

@@ -196,7 +196,7 @@ async def _handle_transfer(args: argparse.Namespace) -> int:
     print(f"[*] Transferring {len(file_paths)} file(s)...")
     result = await manager.transfer_files(file_paths, device)
     if result.success:
-        print(f"[✓] Transfer completed successfully using {result.method.value if result.method else 'USB'}.")
+        print(f"[OK] Transfer completed successfully using {result.method.value if result.method else 'USB'}.")
         return 0
     else:
         print(f"[!] Transfer failed: {', '.join(result.errors) if result.errors else 'Unknown error'}", file=sys.stderr)

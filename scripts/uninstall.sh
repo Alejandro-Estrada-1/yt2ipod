@@ -11,4 +11,4 @@ echo -e "${GREEN}=== Uninstalling yt2ipod ===${NC}"
 # Uninstall via pip
 pip uninstall -y yt2ipod
 
-echo -e "${GREEN}[✓] yt2ipod has been successfully uninstalled.${NC}"
+echo -e "${GREEN}[OK] yt2ipod has been successfully uninstalled.${NC}"

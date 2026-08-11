@@ -48,13 +48,13 @@ class StageResult:
     @property
     def status_icon(self) -> str:
         """Status indicator for display."""
-        return "✓" if self.success else "✗"
+        return "+" if self.success else "-"
 
     def display(self) -> str:
         """Human-readable status line."""
         if self.success:
-            return f"✓ {self.message}" if self.message else f"✓ {self.stage.display_name}"
-        return f"✗ {self.error}" if self.error else f"✗ {self.stage.display_name} failed"
+            return f"+ {self.message}" if self.message else f"+ {self.stage.display_name}"
+        return f"- {self.error}" if self.error else f"- {self.stage.display_name} failed"
 
 
 @dataclass

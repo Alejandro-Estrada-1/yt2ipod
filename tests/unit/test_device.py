@@ -24,18 +24,18 @@ class TestDeviceCapabilities:
         )
         assert caps.has_any_transfer_method
         summary = caps.available_methods_summary
-        assert "✓ USB" in summary
-        assert "✓ AFC" in summary
-        assert "✓ AFC2" in summary
-        assert "✓ SSH" in summary
-        assert "✓ USB-SSH" in summary
+        assert "OK USB" in summary
+        assert "OK AFC" in summary
+        assert "OK AFC2" in summary
+        assert "OK SSH" in summary
+        assert "OK USB-SSH" in summary
 
     def test_no_capabilities(self):
         caps = DeviceCapabilities()
         assert not caps.has_any_transfer_method
         summary = caps.available_methods_summary
-        assert "✗ USB" in summary
-        assert "✗ AFC" in summary
+        assert "NO USB" in summary
+        assert "NO AFC" in summary
 
     def test_afc_only(self):
         caps = DeviceCapabilities(usb=True, afc=True, media_access=True)
@@ -53,11 +53,11 @@ class TestDeviceCapabilities:
     def test_mixed_availability_summary(self):
         caps = DeviceCapabilities(usb=True, afc=True, afc2=False, ssh=True, usb_ssh=False)
         summary = caps.available_methods_summary
-        assert "✓ USB" in summary
-        assert "✓ AFC" in summary
-        assert "✗ AFC2" in summary
-        assert "✓ SSH" in summary
-        assert "✗ USB-SSH" in summary
+        assert "OK USB" in summary
+        assert "OK AFC" in summary
+        assert "NO AFC2" in summary
+        assert "OK SSH" in summary
+        assert "NO USB-SSH" in summary
 
 
 class TestDevice:

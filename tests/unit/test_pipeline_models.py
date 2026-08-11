@@ -33,8 +33,8 @@ class TestStageResult:
             message="Little Jesus — La magia",
             duration=1.5,
         )
-        assert result.status_icon == "✓"
-        assert result.display() == "✓ Little Jesus — La magia"
+        assert result.status_icon == "+"
+        assert result.display() == "+ Little Jesus — La magia"
 
     def test_failure(self):
         result = StageResult(
@@ -42,16 +42,16 @@ class TestStageResult:
             success=False,
             error="HTTP 429 Too Many Requests",
         )
-        assert result.status_icon == "✗"
-        assert "✗ HTTP 429" in result.display()
+        assert result.status_icon == "-"
+        assert " - HTTP 429" in result.display() or "- HTTP 429" in result.display()
 
     def test_success_no_message(self):
         result = StageResult(stage=PipelineStage.CLEANUP, success=True)
-        assert result.display() == "✓ Cleaning"
+        assert result.display() == "+ Cleaning"
 
     def test_failure_no_error(self):
         result = StageResult(stage=PipelineStage.CONVERT, success=False)
-        assert result.display() == "✗ Converting failed"
+        assert result.display() == "- Converting failed"
 
 
 class TestPipelineResult:
@@ -106,7 +106,7 @@ class TestPipelineResult:
             duration=1.0,
         ))
         summary = result.summary()
-        assert "✓ Downloaded" in summary
+        assert "+ Downloaded" in summary
         assert "Done." in summary
 
     def test_summary_failure(self):

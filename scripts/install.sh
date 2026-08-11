@@ -53,14 +53,14 @@ for dep in "${DEPS[@]}"; do
     if ! command -v "$dep" &> /dev/null; then
         suggest_install "$dep"
     else
-        echo -e "${GREEN}[✓] $dep is installed.${NC}"
+        echo -e "${GREEN}[OK] $dep is installed.${NC}"
     fi
 done
 
 # 3. Pip installation
 echo -e "\n${GREEN}[*] Installing python package...${NC}"
 if [ -n "$VIRTUAL_ENV" ]; then
-    echo -e "${GREEN}[✓] Active virtual environment detected. Installing inside it.${NC}"
+    echo -e "${GREEN}[OK] Active virtual environment detected. Installing inside it.${NC}"
     pip install -e ".[tui]"
 else
     # Suggest user to use virtual env or install with --user
@@ -68,6 +68,6 @@ else
     pip install --user -e ".[tui]"
 fi
 
-echo -e "\n${GREEN}[✓] Installation completed successfully!${NC}"
+echo -e "\n${GREEN}[OK] Installation completed successfully!${NC}"
 echo "You can now run yt2ipod CLI using:"
 echo "  yt2ipod --help"
