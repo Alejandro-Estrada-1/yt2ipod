@@ -324,10 +324,22 @@ class MusicBrainzClient:
         # Strip common youtube suffixes like (Official Video), [Audio], etc.
         clean_title = track.youtube_title
         for suffix in ["(Official Video)", "[Official Audio]", "(Lyric Video)", "[Audio]",
-                        "(Official Music Video)", "(Audio)", "[Official Video]"]:
+                        "(Official Music Video)", "(Audio)", "[Official Video]",
+                        "(Video Oficial)", "(Lyric)", "(Lyrics)", "(Audio Oficial)",
+                        "Video Oficial", "Audio Oficial"]:
             clean_title = clean_title.replace(suffix, "").strip()
 
         clean_artist = track.youtube_artist.replace("- Topic", "").strip()
+
+        # If title contains ' - ', try to split artist and title to clean up the query
+        if " - " in clean_title:
+            parts = clean_title.split(" - ", 1)
+            candidate_artist = parts[0].strip()
+            candidate_title = parts[1].strip()
+            
+            # Use split title if the prefix matches our artist name
+            if _similarity(candidate_artist, clean_artist) > 0.7 or clean_artist.lower() in candidate_artist.lower() or candidate_artist.lower() in clean_artist.lower():
+                clean_title = candidate_title
 
         recordings = await self.search_recordings(clean_title, clean_artist)
         if not recordings:

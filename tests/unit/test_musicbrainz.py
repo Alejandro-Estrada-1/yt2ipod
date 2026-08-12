@@ -262,3 +262,41 @@ class TestMusicBrainzClient:
         )
         assert client.user_agent == "myapp/1.2.3 (https://example.com)"
 
+    @pytest.mark.asyncio
+    @patch("urllib.request.urlopen")
+    async def test_match_track_title_cleaning(self, mock_urlopen, client):
+        mock_data = {
+            "recordings": [
+                {
+                    "id": "rec-123",
+                    "title": "La Magia",
+                    "length": 180000,
+                    "artist-credit": [{"name": "Little Jesus", "artist": {"id": "art-123", "name": "Little Jesus"}}],
+                    "releases": [
+                        {
+                            "id": "rel-123",
+                            "title": "Rio Salvaje",
+                            "artist-credit": [{"name": "Little Jesus"}],
+                            "date": "2016-01-01",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_urlopen.return_value = create_mock_response(mock_data)
+
+        # YouTube video title has artist prefix: "Little Jesus - La Magia (Video Oficial)"
+        track = Track(
+            youtube_title="Little Jesus - La Magia (Video Oficial)",
+            youtube_artist="Little Jesus",
+            youtube_duration=180.0
+        )
+
+        confidence, meta = await client.match_track(track)
+        
+        # Verify that search_recordings was called with the split title "La Magia" instead of the full youtube_title
+        assert meta is not None
+        assert meta.title == "La Magia"
+        assert meta.album == "Rio Salvaje"
+        assert confidence > 0.8
+
