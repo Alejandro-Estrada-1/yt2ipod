@@ -286,29 +286,29 @@ class DownloadScreen(Screen):
             progress_bar.update(progress=int(event.percent))
             status_label.update(f"Downloading: {event.percent:.1f}% ({event.speed})")
         elif isinstance(event, events.DownloadCompleted):
-            log.write_line(f"[+] Download finished ({event.total_bytes / (1024*1024):.2f} MB)")
+            log.write_line(f"[+] Download finished ({event.file_size / (1024*1024):.2f} MB)")
             progress_bar.update(progress=100)
-        elif isinstance(event, events.ConvertStarted):
+        elif isinstance(event, events.ConversionStarted):
             status_label.update("Converting to MP3...")
             log.write_line(f"[*] Converting audio to MP3 format...")
-        elif isinstance(event, events.ConvertProgress):
+        elif isinstance(event, events.ConversionProgress):
             progress_bar.update(progress=int(event.percent))
-        elif isinstance(event, events.ConvertCompleted):
+        elif isinstance(event, events.ConversionCompleted):
             log.write_line(f"[+] Audio converted successfully to MP3")
             progress_bar.update(progress=100)
-        elif isinstance(event, events.MetadataQueryStarted):
+        elif isinstance(event, events.MetadataSearchStarted):
             status_label.update("Querying MusicBrainz metadata...")
             log.write_line(f"[*] Searching MusicBrainz database...")
         elif isinstance(event, events.MetadataMatched):
             log.write_line(f"[+] Metadata match found! ({event.confidence*100:.1f}% confidence)")
             log.write_line(f"    Artist: {event.artist} | Title: {event.title} | Album: {event.album}")
-        elif isinstance(event, events.MetadataFallback):
-            log.write_line(f"[!] No confident metadata found. Falling back to YouTube tags.")
-        elif isinstance(event, events.ArtworkQueryStarted):
+        elif isinstance(event, events.MetadataNotFound):
+            log.write_line(f"[!] No confident metadata found: {event.reason}")
+        elif isinstance(event, events.ArtworkSearchStarted):
             status_label.update("Querying artwork cover...")
             log.write_line(f"[*] Querying Cover Art Archive for release: {event.release_id}")
-        elif isinstance(event, events.ArtworkDownloaded):
-            log.write_line(f"[+] Artwork cover downloaded successfully: {event.width}x{event.height}")
+        elif isinstance(event, events.ArtworkFound):
+            log.write_line(f"[+] Artwork cover found: {event.width}x{event.height}")
         elif isinstance(event, events.ArtworkNotFound):
             log.write_line(f"[!] Cover artwork not found: {event.reason}")
         elif isinstance(event, events.TaggingStarted):
@@ -416,20 +416,20 @@ class ImportScreen(Screen):
         from yt2ipod.core.models import events
         event_name = event.__class__.__name__
 
-        if isinstance(event, events.ConvertStarted):
+        if isinstance(event, events.ConversionStarted):
             status_label.update("Converting audio...")
-            log.write_line(f"[*] Converting file {event.input_path.name} to MP3 format...")
-        elif isinstance(event, events.ConvertCompleted):
+            log.write_line(f"[*] Converting audio to MP3 format...")
+        elif isinstance(event, events.ConversionCompleted):
             log.write_line(f"[+] Audio converted successfully")
-        elif isinstance(event, events.MetadataQueryStarted):
+        elif isinstance(event, events.MetadataSearchStarted):
             status_label.update("Identifying metadata...")
             log.write_line(f"[*] Querying MusicBrainz database...")
         elif isinstance(event, events.MetadataMatched):
             log.write_line(f"[+] Matches: {event.artist} - {event.title} ({event.album})")
-        elif isinstance(event, events.ArtworkQueryStarted):
+        elif isinstance(event, events.ArtworkSearchStarted):
             status_label.update("Downloading cover art...")
-        elif isinstance(event, events.ArtworkDownloaded):
-            log.write_line(f"[+] Cover art downloaded successfully")
+        elif isinstance(event, events.ArtworkFound):
+            log.write_line(f"[+] Cover art found successfully")
         elif isinstance(event, events.TaggingCompleted):
             log.write_line(f"[+] Metadata tags embedded")
         elif isinstance(event, events.TransferStarted):
