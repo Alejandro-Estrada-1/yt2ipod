@@ -145,24 +145,31 @@ class YT2iPodApp(App):
         selected = event.item
         label = ""
 
-        # Attempt 1: Map by index in MAIN_MENU (most robust)
+        # Attempt 1: Map by index in MAIN_MENU by scanning list children (most robust and compatible)
         if self.menu_list and selected is not None:
             try:
-                idx = self.menu_list.index_of(selected)
-                if 0 <= idx < len(MAIN_MENU):
-                    label = MAIN_MENU[idx]
+                # Retrieve index by iterating through the children of ListView
+                children_list = list(self.menu_list.children)
+                if selected in children_list:
+                    idx = children_list.index(selected)
+                    if 0 <= idx < len(MAIN_MENU):
+                        label = MAIN_MENU[idx]
             except Exception:
                 pass
 
-        # Attempt 2: Fallback parsing of static widget
+        # Attempt 2: Fallback parsing of static widget (wrapped in try-except to never crash)
         if not label and selected and selected.children:
-            static_widget = selected.children[0]
-            if isinstance(static_widget, Static):
-                renderable = static_widget.renderable
-                if hasattr(renderable, "plain"):
-                    label = str(renderable.plain)
-                else:
-                    label = str(renderable)
+            try:
+                static_widget = selected.children[0]
+                if isinstance(static_widget, Static):
+                    renderable = getattr(static_widget, "renderable", getattr(static_widget, "_renderable", None))
+                    if renderable is not None:
+                        if hasattr(renderable, "plain"):
+                            label = str(renderable.plain)
+                        else:
+                            label = str(renderable)
+            except Exception:
+                pass
 
         if not label:
             label = "Menu Item"

@@ -57,9 +57,10 @@ def test_tui_app_menu_selection(mock_detector):
     mock_static.renderable = "Settings"
     mock_item.children = [mock_static]
     
-    # We mock ListView
+    # We mock ListView and its children list
     mock_list_view = MagicMock()
-    mock_list_view.index_of.return_value = 4  # corresponds to "Settings" in MAIN_MENU
+    # Create 5 mock items, the 5th one (idx 4) is our mock_item
+    mock_list_view.children = [MagicMock(), MagicMock(), MagicMock(), MagicMock(), mock_item]
     app.menu_list = mock_list_view
     
     mock_event = MagicMock()
