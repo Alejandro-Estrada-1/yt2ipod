@@ -338,3 +338,51 @@ class TestMusicBrainzClient:
         assert meta.album == "El Silencio"
         assert confidence > 0.8
 
+
+    @pytest.mark.asyncio
+    @patch("urllib.request.urlopen")
+    async def test_match_track_three_part_fallback(self, mock_urlopen, client):
+        # We mock first call (query with uploader artist "Puro Rock") to return empty
+        # We mock subsequent fallback call (query with correct artist "Caifanes") to succeed
+        mock_data_empty = {"recordings": []}
+        mock_data_success = {
+            "recordings": [
+                {
+                    "id": "rec-afuera",
+                    "title": "Afuera",
+                    "length": 290000,
+                    "artist-credit": [{"name": "Caifanes", "artist": {"id": "art-caifanes", "name": "Caifanes"}}],
+                    "releases": [
+                        {
+                            "id": "rel-el-nervio",
+                            "title": "El Nervio del Volcán",
+                            "artist-credit": [{"name": "Caifanes"}],
+                            "date": "1994-01-01",
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        # side_effect to return empty first, then success
+        mock_urlopen.side_effect = [
+            create_mock_response(mock_data_empty),
+            create_mock_response(mock_data_empty),  # for the 2-part split: parts[-2] as artist (Caifanes) vs parts[-1] as title (Afuera) will actually be tried first!
+            # Wait, our first fallback tries parts[-2] (Caifanes) and parts[-1] (Afuera)
+            # which will actually succeed! Let's mock that return.
+            create_mock_response(mock_data_success)
+        ]
+
+        track = Track(
+            youtube_title="Puro Rock - Caifanes - Afuera (Letra)",
+            youtube_artist="Puro Rock",
+            youtube_duration=290.0
+        )
+
+        confidence, meta = await client.match_track(track)
+        
+        assert meta is not None
+        assert meta.title == "Afuera"
+        assert meta.album == "El Nervio del Volcán"
+        assert confidence > 0.7
+
