@@ -74,6 +74,7 @@ def mock_coverart():
     mock_artwork.height = 500
     mock_artwork.release_id = "rel-456"
     ca.fetch_front_artwork = AsyncMock(return_value=mock_artwork)
+    ca.check_dependency = AsyncMock()
     return ca
 
 

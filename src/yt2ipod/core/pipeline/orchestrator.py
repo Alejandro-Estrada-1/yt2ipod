@@ -237,6 +237,13 @@ class Pipeline:
                                 release_id=artwork.release_id,
                             ))
                             break
+                    except DependencyError as de:
+                        logger.warning(f"Cover Art feature disabled: {de}")
+                        event_callback(events.ArtworkNotFound(
+                            release_id=track.metadata.musicbrainz_release_id,
+                            reason=str(de)
+                        ))
+                        return
                     except Exception as e:
                         logger.debug(f"Cover Art search failed for release {rid}: {e}")
 
@@ -267,6 +274,13 @@ class Pipeline:
                                             release_id=artwork.release_id,
                                         ))
                                         break
+                                except DependencyError as de:
+                                    logger.warning(f"Cover Art feature disabled: {de}")
+                                    event_callback(events.ArtworkNotFound(
+                                        release_id=track.metadata.musicbrainz_release_id,
+                                        reason=str(de)
+                                    ))
+                                    return
                                 except Exception as e:
                                     logger.debug(f"Cover Art fallback search failed for release {rid}: {e}")
                     except Exception as rec_err:
@@ -278,6 +292,7 @@ class Pipeline:
                         logger.info(f"Cover Art rescue: Downloading YouTube video thumbnail from {track.youtube_thumbnail_url}...")
                         try:
                             temp_art = self.temp_manager.create_temp_file(suffix=".jpg")
+                            await self.coverart.check_dependency()
                             # We import Artwork locally to avoid circular dependency
                             from yt2ipod.core.models.artwork import Artwork
                             
