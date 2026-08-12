@@ -17,6 +17,7 @@ try:
     from textual.widgets import Header, Footer, Static, ListView, ListItem
     from textual.containers import Container
     from textual.binding import Binding
+    from textual.screen import Screen
 except ImportError as e:
     raise ImportError("textual library is not installed. Install with: pip install 'yt2ipod[tui]'") from e
 
@@ -30,6 +31,22 @@ MAIN_MENU = [
     "Settings",
     "About",
 ]
+
+
+class PlaceholderScreen(Screen):
+    """Simple placeholder screen for menu navigation."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        self.title_text = title
+
+    def compose(self) -> ComposeResult:
+        yield Static(
+            f"[bold]{self.title_text}[/bold]\n\n"
+            f"This screen is a placeholder in Phase 14.\n\n"
+            f"[bold]B[/bold] Back | [bold]Q[/bold] Quit",
+            id="placeholder"
+        )
 
 
 class DeviceStatus(Static):
@@ -127,11 +144,25 @@ class YT2iPodApp(App):
         # Handle selection from main menu
         selected = event.item
         label = ""
-        # Get label text safely
-        if selected and selected.children:
+
+        # Attempt 1: Map by index in MAIN_MENU (most robust)
+        if self.menu_list and selected is not None:
+            try:
+                idx = self.menu_list.index_of(selected)
+                if 0 <= idx < len(MAIN_MENU):
+                    label = MAIN_MENU[idx]
+            except Exception:
+                pass
+
+        # Attempt 2: Fallback parsing of static widget
+        if not label and selected and selected.children:
             static_widget = selected.children[0]
             if isinstance(static_widget, Static):
-                label = str(static_widget.renderable)
+                renderable = static_widget.renderable
+                if hasattr(renderable, "plain"):
+                    label = str(renderable.plain)
+                else:
+                    label = str(renderable)
 
         if not label:
             label = "Menu Item"
@@ -140,14 +171,7 @@ class YT2iPodApp(App):
         self.push_screen_placeholder(label)
 
     def push_screen_placeholder(self, title: str) -> None:
-        # Show a simple screen placeholder
-        placeholder = Static(
-            f"[bold]{title}[/bold]\n\n"
-            f"This screen is a placeholder in Phase 14.\n\n"
-            f"[bold]B[/bold] Back | [bold]Q[/bold] Quit",
-            id="placeholder"
-        )
-        self.push_screen(App()._create_screen(placeholder))
+        self.push_screen(PlaceholderScreen(title))
 
 
 def run_textual(detector: DeviceDetector | None = None) -> int:

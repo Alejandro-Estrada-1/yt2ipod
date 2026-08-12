@@ -46,3 +46,27 @@ async def test_tui_app_refresh_devices(mock_detector):
     # Verify what was printed/updated
     called_lines = mock_status_widget.update_status.call_args_list[-1][0][0]
     assert any("iPod nano" in line for line in called_lines)
+
+
+def test_tui_app_menu_selection(mock_detector):
+    app = YT2iPodApp(detector=mock_detector)
+    
+    # Mock event and selected list item
+    mock_item = MagicMock()
+    mock_static = MagicMock()
+    mock_static.renderable = "Settings"
+    mock_item.children = [mock_static]
+    
+    # We mock ListView
+    mock_list_view = MagicMock()
+    mock_list_view.index_of.return_value = 4  # corresponds to "Settings" in MAIN_MENU
+    app.menu_list = mock_list_view
+    
+    mock_event = MagicMock()
+    mock_event.item = mock_item
+    
+    with patch.object(app, "push_screen") as mock_push:
+        app.on_list_view_selected(mock_event)
+        
+    assert "Settings" in app.nav_stack
+    mock_push.assert_called_once()
