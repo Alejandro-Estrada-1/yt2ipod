@@ -83,7 +83,7 @@ brew install yt-dlp ffmpeg openssh usbmuxd libimobiledevice ifuse
 #### Termux
 
 ```bash
-pkg install python yt-dlp ffmpeg openssh libjpeg-turbo libtiff freetype
+pkg install python yt-dlp ffmpeg openssh libjpeg-turbo libtiff freetype libimobiledevice usbmuxd ifuse
 ```
 
 #### Debian/Ubuntu
