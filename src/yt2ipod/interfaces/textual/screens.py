@@ -85,6 +85,13 @@ class SettingsScreen(Screen):
                 id="setting-duplicate-policy"
             )
 
+            yield Label("iPod Music Directory:")
+            yield Input(
+                value=self.config.device_music_dir or "/var/mobile/Media/",
+                placeholder="/var/mobile/Media/mImport/",
+                id="setting-device-music-dir"
+            )
+
             with Horizontal():
                 yield Button("Save", variant="success", id="settings-save")
                 yield Button("Cancel", variant="error", id="settings-cancel")
@@ -96,10 +103,12 @@ class SettingsScreen(Screen):
             ssh_key = self.query_one("#setting-ssh-key", Input).value
             ssh_user = self.query_one("#setting-ssh-user", Input).value
             policy = self.query_one("#setting-duplicate-policy", Select).value
+            dev_music = self.query_one("#setting-device-music-dir", Input).value
 
             self.config.output_dir = Path(out_dir) if out_dir else None
             self.config.ssh_settings.username = ssh_user
             self.config.ssh_settings.identity_file = Path(ssh_key) if ssh_key else None
+            self.config.device_music_dir = dev_music or "/var/mobile/Media/"
             
             from yt2ipod.core.models.config import DuplicatePolicy
             if policy:

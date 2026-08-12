@@ -110,6 +110,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to cookies file (e.g. cookies.txt) for YouTube download authentication.",
     )
 
+    parser.add_argument(
+        "--device-music-dir",
+        type=str,
+        default=None,
+        help="Destination directory on the iPod for transferred music (default: /var/mobile/Media/).",
+    )
+
     return parser
 
 
@@ -149,6 +156,8 @@ async def _handle_automatic(args: argparse.Namespace) -> int:
         keep_temp=args.keep_temp,
         cookies_file=args.cookies,
     )
+    if args.device_music_dir:
+        config.device_music_dir = args.device_music_dir
     if args.transfer_method:
         config.preferred_transfer_order = [args.transfer_method]
 
@@ -193,6 +202,8 @@ async def _handle_transfer(args: argparse.Namespace) -> int:
     """Transfer existing files to a connected device."""
     detector = DeviceDetector()
     config = AppConfig()
+    if args.device_music_dir:
+        config.device_music_dir = args.device_music_dir
     if args.transfer_method:
         config.preferred_transfer_order = [args.transfer_method]
     manager = TransferManager(config=config)
@@ -230,6 +241,8 @@ async def _handle_import(args: argparse.Namespace) -> int:
         keep_temp=args.keep_temp,
         cookies_file=args.cookies,
     )
+    if args.device_music_dir:
+        config.device_music_dir = args.device_music_dir
     if args.transfer_method:
         config.preferred_transfer_order = [args.transfer_method]
 

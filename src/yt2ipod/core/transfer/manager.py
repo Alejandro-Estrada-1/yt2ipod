@@ -147,7 +147,8 @@ class TransferManager:
             )
 
         layout = DeviceStorageLayout()
-        dest_dir = destination or Path(layout.default_destination)
+        dest_path_str = self.config.device_music_dir if hasattr(self.config, "device_music_dir") and self.config.device_music_dir else layout.default_destination
+        dest_dir = destination or Path(dest_path_str)
 
         file_list = [Path(f) for f in files]
         start_time = time.monotonic()

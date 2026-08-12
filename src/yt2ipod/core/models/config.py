@@ -82,6 +82,7 @@ class AppConfig:
         default_factory=lambda: ["afc", "afc2", "usb_ssh", "wifi_ssh"]
     )
     ssh_settings: SSHSettings = field(default_factory=SSHSettings)
+    device_music_dir: str = "/var/mobile/Media/"
 
     # Files
     duplicate_policy: DuplicatePolicy = DuplicatePolicy.RENAME
