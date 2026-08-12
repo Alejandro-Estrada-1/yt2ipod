@@ -300,3 +300,41 @@ class TestMusicBrainzClient:
         assert meta.album == "Rio Salvaje"
         assert confidence > 0.8
 
+
+    @pytest.mark.asyncio
+    @patch("urllib.request.urlopen")
+    async def test_match_track_lyrics_cleaning(self, mock_urlopen, client):
+        mock_data = {
+            "recordings": [
+                {
+                    "id": "rec-caifanes",
+                    "title": "No dejes que",
+                    "length": 220000,
+                    "artist-credit": [{"name": "Caifanes", "artist": {"id": "art-caifanes", "name": "Caifanes"}}],
+                    "releases": [
+                        {
+                            "id": "rel-el-silencio",
+                            "title": "El Silencio",
+                            "artist-credit": [{"name": "Caifanes"}],
+                            "date": "1992-01-01",
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_urlopen.return_value = create_mock_response(mock_data)
+
+        # YouTube video has dots and lyrics tag: "Caifanes - No Dejes Que... (Letra / Lyrics)"
+        track = Track(
+            youtube_title="Caifanes - No Dejes Que... (Letra / Lyrics)",
+            youtube_artist="Caifanes",
+            youtube_duration=220.0
+        )
+
+        confidence, meta = await client.match_track(track)
+        
+        assert meta is not None
+        assert meta.title == "No dejes que"
+        assert meta.album == "El Silencio"
+        assert confidence > 0.8
+

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -321,13 +322,17 @@ class MusicBrainzClient:
             Returns (0.0, None) if no match found.
         """
         # Clean up title/artist for search
-        # Strip common youtube suffixes like (Official Video), [Audio], etc.
         clean_title = track.youtube_title
-        for suffix in ["(Official Video)", "[Official Audio]", "(Lyric Video)", "[Audio]",
-                        "(Official Music Video)", "(Audio)", "[Official Video]",
-                        "(Video Oficial)", "(Lyric)", "(Lyrics)", "(Audio Oficial)",
-                        "Video Oficial", "Audio Oficial"]:
-            clean_title = clean_title.replace(suffix, "").strip()
+        
+        # Remove any parentheses or brackets at the end of the title recursively
+        while True:
+            new_title = re.sub(r'\s*[\(\[][^\)\]]*[\)\]]\s*$', '', clean_title).strip()
+            if new_title == clean_title or not new_title:
+                break
+            clean_title = new_title
+
+        # Also remove common keywords anywhere in the title inside parentheses
+        clean_title = re.sub(r'\s*[\(\[][^\)\]]*(?:lyrics|letra|video|audio|official|oficial|hq|hd|live|vivo)[^\)\]]*[\)\]]', '', clean_title, flags=re.IGNORECASE).strip()
 
         clean_artist = track.youtube_artist.replace("- Topic", "").strip()
 
@@ -340,6 +345,13 @@ class MusicBrainzClient:
             # Use split title if the prefix matches our artist name
             if _similarity(candidate_artist, clean_artist) > 0.7 or clean_artist.lower() in candidate_artist.lower() or candidate_artist.lower() in clean_artist.lower():
                 clean_title = candidate_title
+
+        # Final cleanup of dots, punctuation and trailing noise for search query
+        clean_title = clean_title.replace("...", "").replace("..", "")
+        # Remove special characters that Lucene query parser might disallow or fail on
+        clean_title = re.sub(r'[\\/*?:|"<>`~!\(\)\[\]\{\}\^~\-_]', ' ', clean_title)
+        # Collapse multiple spaces
+        clean_title = re.sub(r'\s+', ' ', clean_title).strip()
 
         recordings = await self.search_recordings(clean_title, clean_artist)
         if not recordings:
