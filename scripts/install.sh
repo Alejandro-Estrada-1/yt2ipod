@@ -61,11 +61,11 @@ done
 echo -e "\n${GREEN}[*] Installing python package...${NC}"
 if [ -n "$VIRTUAL_ENV" ]; then
     echo -e "${GREEN}[OK] Active virtual environment detected. Installing inside it.${NC}"
-    pip install -e ".[tui]"
+    pip install -e ".[all]"
 else
     # Suggest user to use virtual env or install with --user
     echo -e "${YELLOW}[!] No active virtualenv detected. Installing in user site packages.${NC}"
-    pip install --user -e ".[tui]"
+    pip install --user -e ".[all]"
 fi
 
 echo -e "\n${GREEN}[OK] Installation completed successfully!${NC}"
