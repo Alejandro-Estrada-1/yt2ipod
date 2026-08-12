@@ -134,6 +134,7 @@ class Track:
     youtube_title: str = ""
     youtube_artist: str = ""
     youtube_duration: float = 0.0  # seconds
+    youtube_thumbnail_url: str = ""
 
     # Output
     output_path: Path | None = None

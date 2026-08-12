@@ -6,6 +6,7 @@ and transfer flow asynchronously, emitting structured events at each stage.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -107,6 +108,7 @@ class Pipeline:
                     track.youtube_title = info.youtube_title
                     track.youtube_artist = info.youtube_artist
                     track.youtube_duration = info.youtube_duration
+                    track.youtube_thumbnail_url = info.youtube_thumbnail_url
                 except Exception as e:
                     logger.warning(f"Could not retrieve video metadata: {e}")
 
@@ -269,6 +271,37 @@ class Pipeline:
                                     logger.debug(f"Cover Art fallback search failed for release {rid}: {e}")
                     except Exception as rec_err:
                         logger.debug(f"Failed to fetch detailed recording releases: {rec_err}")
+
+                if not artwork or not artwork.is_valid:
+                    # Final fallback: download and process YouTube thumbnail if it exists
+                    if track.youtube_thumbnail_url:
+                        logger.info(f"Cover Art rescue: Downloading YouTube video thumbnail from {track.youtube_thumbnail_url}...")
+                        try:
+                            temp_art = self.temp_manager.create_temp_file(suffix=".jpg")
+                            # We import Artwork locally to avoid circular dependency
+                            from yt2ipod.core.models.artwork import Artwork
+                            
+                            image_bytes = await asyncio.to_thread(self.coverart._sync_download_image, track.youtube_thumbnail_url)
+                            width, height, fmt = await asyncio.to_thread(
+                                self.coverart._sync_process_image, image_bytes, temp_art
+                            )
+                            track.artwork_path = temp_art
+                            artwork = Artwork(
+                                path=temp_art,
+                                url=track.youtube_thumbnail_url,
+                                width=width,
+                                height=height,
+                                format=fmt,
+                                release_id="youtube-thumbnail",
+                                release_title=track.metadata.album or "YouTube Video",
+                            )
+                            event_callback(events.ArtworkFound(
+                                width=width,
+                                height=height,
+                                release_id="youtube-thumbnail",
+                            ))
+                        except Exception as thumb_err:
+                            logger.debug(f"Failed to download and process YouTube thumbnail: {thumb_err}")
 
                 if not artwork or not artwork.is_valid:
                     event_callback(events.ArtworkNotFound(

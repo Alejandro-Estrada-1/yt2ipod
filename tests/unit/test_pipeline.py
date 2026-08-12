@@ -315,3 +315,70 @@ async def test_pipeline_cover_art_deep_rescue(
     
     assert track.metadata.musicbrainz_release_id == "rel-historical-cover-art"
     assert track.artwork_path is not None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_cover_art_youtube_thumbnail_rescue(
+    mock_downloader,
+    mock_musicbrainz,
+    mock_coverart,
+    mock_ffmpeg,
+    mock_device_detector,
+    mock_transfer_manager,
+    tmp_path,
+):
+    output_dir = tmp_path / "Output"
+    
+    # Configure mock_downloader to provide a youtube thumbnail URL
+    from yt2ipod.core.models.track import Track as TrackModel
+    mock_downloader.get_metadata = AsyncMock(return_value=TrackModel(
+        youtube_title="La magia",
+        youtube_artist="Little Jesus",
+        youtube_duration=245.0,
+        youtube_thumbnail_url="https://youtube.com/thumb.jpg"
+    ))
+
+    # MusicBrainz match has one release
+    mock_musicbrainz.match_track = AsyncMock(return_value=(
+        0.95,
+        TrackMetadata(
+            title="La magia",
+            artist="Little Jesus",
+            album="Río salvaje",
+            album_artist="Little Jesus",
+            musicbrainz_recording_id="rec-123",
+            musicbrainz_release_id="rel-no-cover",
+            musicbrainz_artist_id="art-789",
+            all_release_ids=["rel-no-cover"],
+        )
+    ))
+    
+    # Detailed get_recording returns nothing new
+    mock_musicbrainz.get_recording = AsyncMock(return_value={"releases": []})
+    
+    # CoverArt Archive mock fails (returns None) for all queries
+    mock_coverart.fetch_front_artwork = AsyncMock(return_value=None)
+    mock_coverart._sync_download_image = MagicMock(return_value=b"fake raw image bytes")
+    mock_coverart._sync_process_image = MagicMock(return_value=(500, 500, "jpeg"))
+
+    pipeline = Pipeline(
+        downloader=mock_downloader,
+        musicbrainz=mock_musicbrainz,
+        coverart=mock_coverart,
+        ffmpeg=mock_ffmpeg,
+        device_detector=mock_device_detector,
+        transfer_manager=mock_transfer_manager,
+    )
+    
+    track = await pipeline.run(
+        url_or_path="https://youtube.com/watch?v=lamagia",
+        output_dir=output_dir,
+        event_callback=lambda x: None,
+        keep_temp=False,
+        transfer=False
+    )
+    
+    # Check that it downloaded and processed the YouTube thumbnail
+    assert track.artwork_path is not None
+    mock_coverart._sync_download_image.assert_called_once_with("https://youtube.com/thumb.jpg")
+    mock_coverart._sync_process_image.assert_called_once()

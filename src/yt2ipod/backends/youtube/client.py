@@ -121,6 +121,7 @@ class YtDlpClient:
                 youtube_title=data.get("title", ""),
                 youtube_artist=data.get("uploader", ""),
                 youtube_duration=float(data.get("duration", 0.0)),
+                youtube_thumbnail_url=data.get("thumbnail", ""),
             )
         except json.JSONDecodeError as e:
             raise DownloadError("Failed to parse yt-dlp JSON output.") from e
