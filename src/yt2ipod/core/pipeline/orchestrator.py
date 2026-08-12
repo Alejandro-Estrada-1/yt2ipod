@@ -203,33 +203,45 @@ class Pipeline:
 
             # 4. Cover Art search (Cover Art Archive)
             if track.metadata.musicbrainz_release_id:
+                # Gather all release candidates to try, preserving order
+                rids = [track.metadata.musicbrainz_release_id]
+                if hasattr(track.metadata, "all_release_ids") and track.metadata.all_release_ids:
+                    for rid in track.metadata.all_release_ids:
+                        if rid not in rids:
+                            rids.append(rid)
+
                 event_callback(events.ArtworkSearchStarted(
                     release_id=track.metadata.musicbrainz_release_id
                 ))
-                try:
-                    temp_art = self.temp_manager.create_temp_file(suffix=".jpg")
-                    artwork = await self.coverart.fetch_front_artwork(
-                        track.metadata.musicbrainz_release_id,
-                        track.metadata.album,
-                        temp_art
-                    )
-                    if artwork and artwork.is_valid:
-                        track.artwork_path = temp_art
-                        event_callback(events.ArtworkFound(
-                            width=artwork.width,
-                            height=artwork.height,
-                            release_id=artwork.release_id,
-                        ))
-                    else:
-                        event_callback(events.ArtworkNotFound(
-                            release_id=track.metadata.musicbrainz_release_id,
-                            reason="Release has no front artwork in Cover Art Archive."
-                        ))
-                except Exception as e:
-                    logger.debug(f"Cover Art search failed: {e}")
+                
+                artwork = None
+                tried_ids = []
+                for rid in rids:
+                    try:
+                        tried_ids.append(rid)
+                        temp_art = self.temp_manager.create_temp_file(suffix=".jpg")
+                        artwork = await self.coverart.fetch_front_artwork(
+                            rid,
+                            track.metadata.album,
+                            temp_art
+                        )
+                        if artwork and artwork.is_valid:
+                            track.artwork_path = temp_art
+                            # Update selected release ID to the one that actually had artwork
+                            track.metadata.musicbrainz_release_id = rid
+                            event_callback(events.ArtworkFound(
+                                width=artwork.width,
+                                height=artwork.height,
+                                release_id=artwork.release_id,
+                            ))
+                            break
+                    except Exception as e:
+                        logger.debug(f"Cover Art search failed for release {rid}: {e}")
+
+                if not artwork or not artwork.is_valid:
                     event_callback(events.ArtworkNotFound(
                         release_id=track.metadata.musicbrainz_release_id,
-                        reason=str(e)
+                        reason=f"No front artwork found in Cover Art Archive for any associated release IDs: {tried_ids}"
                     ))
 
             # 5. Tagging stage

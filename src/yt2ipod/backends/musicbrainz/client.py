@@ -296,6 +296,9 @@ class MusicBrainzClient:
                 # Extract artist IDs
                 recording_artist_id = _extract_artist_id(recording_artist_credit)
 
+                # Build list of all release IDs from this recording
+                all_ids = [r.get("id") for r in releases if r.get("id")]
+
                 best_meta = TrackMetadata(
                     title=recording.get("title", ""),
                     artist=artist_name,
@@ -307,6 +310,7 @@ class MusicBrainzClient:
                     musicbrainz_recording_id=recording.get("id", ""),
                     musicbrainz_release_id=release.get("id", ""),
                     musicbrainz_artist_id=recording_artist_id,
+                    all_release_ids=all_ids,
                 )
 
         return best_release_score, best_meta
@@ -354,6 +358,44 @@ class MusicBrainzClient:
         clean_title = re.sub(r'\s+', ' ', clean_title).strip()
 
         recordings = await self.search_recordings(clean_title, clean_artist)
+        
+        # Fallback 1: If no recordings found and YouTube title has ' - ',
+        # the true artist might be written in the video title instead of the channel uploader.
+        if not recordings and " - " in track.youtube_title:
+            raw_title = track.youtube_title
+            for suffix in ["(Official Video)", "[Official Audio]", "(Lyric Video)", "[Audio]",
+                            "(Official Music Video)", "(Audio)", "[Official Video]",
+                            "(Video Oficial)", "(Lyric)", "(Lyrics)", "(Audio Oficial)",
+                            "Video Oficial", "Audio Oficial", "Letra", "Lyrics", " (Letra)", " (Lyrics)"]:
+                raw_title = raw_title.replace(suffix, "").strip()
+            
+            raw_title = re.sub(r'\s*[\(\[][^\)\]]*[\)\]]', '', raw_title).strip()
+            parts = [p.strip() for p in raw_title.split(" - ") if p.strip()]
+            
+            if len(parts) >= 2:
+                # Try parts[-2] as artist and parts[-1] as title
+                fallback_artist = parts[-2]
+                fallback_title = parts[-1]
+                
+                # Cleanup title for Lucene
+                fallback_title_clean = fallback_title.replace("...", "").replace("..", "")
+                fallback_title_clean = re.sub(r'[\\/*?:|"<>`~!\(\)\[\]\{\}\^~\-_]', ' ', fallback_title_clean)
+                fallback_title_clean = re.sub(r'\s+', ' ', fallback_title_clean).strip()
+                
+                logger.info(f"Fallback search: recording='{fallback_title_clean}', artist='{fallback_artist}'")
+                recordings = await self.search_recordings(fallback_title_clean, fallback_artist)
+                
+                # Try parts[0] as artist and parts[1] as title if we have 3 parts
+                if not recordings and len(parts) >= 3:
+                    fallback_artist = parts[0]
+                    fallback_title = parts[1]
+                    fallback_title_clean = fallback_title.replace("...", "").replace("..", "")
+                    fallback_title_clean = re.sub(r'[\\/*?:|"<>`~!\(\)\[\]\{\}\^~\-_]', ' ', fallback_title_clean)
+                    fallback_title_clean = re.sub(r'\s+', ' ', fallback_title_clean).strip()
+                    
+                    logger.info(f"Second fallback search: recording='{fallback_title_clean}', artist='{fallback_artist}'")
+                    recordings = await self.search_recordings(fallback_title_clean, fallback_artist)
+
         if not recordings:
             return 0.0, None
 

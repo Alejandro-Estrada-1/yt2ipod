@@ -39,6 +39,7 @@ class TrackMetadata:
     musicbrainz_recording_id: str = ""
     musicbrainz_release_id: str = ""
     musicbrainz_artist_id: str = ""
+    all_release_ids: list[str] = field(default_factory=list)
 
     @property
     def track_string(self) -> str:

@@ -182,3 +182,67 @@ async def test_pipeline_run_success(
     assert events.TransferCompleted in types
     assert events.CleanupStarted in types
     assert events.CleanupCompleted in types
+
+
+@pytest.mark.asyncio
+async def test_pipeline_cover_art_fallback(
+    mock_downloader,
+    mock_musicbrainz,
+    mock_coverart,
+    mock_ffmpeg,
+    mock_device_detector,
+    mock_transfer_manager,
+    tmp_path,
+):
+    output_dir = tmp_path / "Output"
+    
+    # Configure mock_musicbrainz to return multiple release IDs
+    mock_musicbrainz.match_track = AsyncMock(return_value=(
+        0.95,
+        TrackMetadata(
+            title="La magia",
+            artist="Little Jesus",
+            album="Río salvaje",
+            album_artist="Little Jesus",
+            musicbrainz_recording_id="rec-123",
+            musicbrainz_release_id="rel-no-cover",
+            musicbrainz_artist_id="art-789",
+            all_release_ids=["rel-no-cover", "rel-with-cover"],
+        )
+    ))
+    
+    # Configure mock_coverart to return None for "rel-no-cover", and valid Artwork for "rel-with-cover"
+    async def mock_fetch_front(rid, title, out_path):
+        if rid == "rel-no-cover":
+            return None
+        elif rid == "rel-with-cover":
+            mock_artwork = MagicMock()
+            mock_artwork.is_valid = True
+            mock_artwork.width = 500
+            mock_artwork.height = 500
+            mock_artwork.release_id = "rel-with-cover"
+            return mock_artwork
+        return None
+        
+    mock_coverart.fetch_front_artwork = mock_fetch_front
+
+    pipeline = Pipeline(
+        downloader=mock_downloader,
+        musicbrainz=mock_musicbrainz,
+        coverart=mock_coverart,
+        ffmpeg=mock_ffmpeg,
+        device_detector=mock_device_detector,
+        transfer_manager=mock_transfer_manager,
+    )
+    
+    track = await pipeline.run(
+        url_or_path="https://youtube.com/watch?v=lamagia",
+        output_dir=output_dir,
+        event_callback=lambda x: None,
+        keep_temp=False,
+        transfer=False
+    )
+    
+    # The final release_id must be updated to the one that actually had artwork
+    assert track.metadata.musicbrainz_release_id == "rel-with-cover"
+    assert track.artwork_path is not None
