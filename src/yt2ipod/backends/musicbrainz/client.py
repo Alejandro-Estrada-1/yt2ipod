@@ -232,14 +232,34 @@ class MusicBrainzClient:
             else:
                 score -= int(diff)  # Small penalty for minor differences
 
+        import re
+        
+        # Clean up youtube metadata before scoring similarity
+        clean_yt_title = track.youtube_title
+        clean_yt_title = re.sub(r'\s*[\(\[][^\)\]]*(?:lyrics|letra|video|audio|official|oficial|hq|hd|live|vivo)[^\)\]]*[\)\]]', '', clean_yt_title, flags=re.IGNORECASE).strip()
+        clean_yt_title = re.sub(r'(?i)\s+f(?:ea)?t\.?\s+.*$', '', clean_yt_title)
+        
+        if " - " in clean_yt_title:
+            clean_yt_title = clean_yt_title.split(" - ", 1)[1].strip()
+        
         # 2. Title similarity bonus
-        title_sim = _similarity(recording.get("title", ""), track.youtube_title)
+        title_sim = _similarity(recording.get("title", ""), clean_yt_title)
         score += int(title_sim * 20)
+
+        clean_yt_artist = track.youtube_artist.replace("- Topic", "").strip()
+        clean_yt_artist = re.split(r'(?i)\s+f(?:ea)?t\.?\s+', clean_yt_artist)[0].strip()
 
         # 3. Artist similarity bonus
         rec_artist = _build_artist_credit_string(recording.get("artist-credit", []))
-        artist_sim = _similarity(rec_artist, track.youtube_artist)
+        artist_sim = _similarity(rec_artist, clean_yt_artist)
         score += int(artist_sim * 15)
+        
+        # 4. Penalize alt versions (demo, live, instrumental, remix) if not requested
+        rec_title_lower = recording.get("title", "").lower()
+        yt_title_lower = track.youtube_title.lower()
+        for kw in ["demo", "live", "remix", "instrumental", "karaoke"]:
+            if kw in rec_title_lower and kw not in yt_title_lower:
+                score -= 100
 
         releases = recording.get("releases", [])
         if not releases:
@@ -395,6 +415,7 @@ class MusicBrainzClient:
                 
                 # Cleanup title for Lucene
                 fallback_title_clean = fallback_title.replace("...", "").replace("..", "")
+                fallback_title_clean = re.sub(r'(?i)\s+f(?:ea)?t\.?\s+.*$', '', fallback_title_clean)
                 fallback_title_clean = re.sub(r'[\\/*?:|"<>`~!\(\)\[\]\{\}\^~\-_]', ' ', fallback_title_clean)
                 fallback_title_clean = re.sub(r'\s+', ' ', fallback_title_clean).strip()
                 
@@ -406,6 +427,7 @@ class MusicBrainzClient:
                     fallback_artist = parts[0]
                     fallback_title = parts[1]
                     fallback_title_clean = fallback_title.replace("...", "").replace("..", "")
+                    fallback_title_clean = re.sub(r'(?i)\s+f(?:ea)?t\.?\s+.*$', '', fallback_title_clean)
                     fallback_title_clean = re.sub(r'[\\/*?:|"<>`~!\(\)\[\]\{\}\^~\-_]', ' ', fallback_title_clean)
                     fallback_title_clean = re.sub(r'\s+', ' ', fallback_title_clean).strip()
                     
