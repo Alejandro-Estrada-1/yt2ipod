@@ -12,11 +12,14 @@ from pathlib import Path
 
 from yt2ipod.core.device.usb_ssh import USBSSHManager
 from yt2ipod.core.filesystem.backend import FileSystemBackend, IfuseAFCBackend, LocalBackend, SSHBackend
+import yt2ipod.core.filesystem.backend as fs_backend
+
 from yt2ipod.core.models.config import AppConfig
 from yt2ipod.core.models.device import Device
 from yt2ipod.core.models.transfer import TransferMethod, TransferResult, DeviceStorageLayout
 from yt2ipod.core.cleanup.manager import TemporaryFileManager
 from yt2ipod.utils.logging import get_logger
+import yt2ipod.utils.prompt as prompt
 
 logger = get_logger(__name__)
 
@@ -103,14 +106,21 @@ class TransferManager:
 
             elif m_str == "wifi_ssh" and caps.ssh:
                 # Read hostname/IP from SSH settings or fallback to device properties
-                host = self.config.ssh_settings.host or device.serial
+                host = self.config.ssh_settings.host
+                if not host:
+                    host = prompt.ask_ip(f"Enter IP address for device {device.model or device.serial}: ")
+                    # Save for future runs
+                    self.config.ssh_settings.host = host
                 if not host:
                     continue
                 try:
-                    backend = SSHBackend(
+                    import importlib
+                    ssh_mod = importlib.import_module('yt2ipod.core.filesystem.backend')
+                    backend_cls = getattr(ssh_mod, 'SSHBackend')
+                    backend = backend_cls(
                         host=host,
                         port=self.config.ssh_settings.port,
-                        username=self.config.ssh_settings.username or "mobile",
+                        username=self.config.ssh_settings.username or 'mobile',
                         identity_file=self.config.ssh_settings.identity_file
                     )
                     return backend, TransferMethod.WIFI_SSH, None
