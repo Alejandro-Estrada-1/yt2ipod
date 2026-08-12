@@ -365,6 +365,16 @@ class MusicBrainzClient:
 
         recordings = await self.search_recordings(clean_title, clean_artist)
         
+        # Fallback 0: If artist contains commas or multiple artists, try just the primary artist
+        if not recordings and re.search(r',|\s+f(?:ea)?t\.?\s+|\s+y\s+|\s+&\s+', clean_artist, re.IGNORECASE):
+            primary_artist = clean_artist.split(",")[0].strip()
+            primary_artist = re.split(r'(?i)\s+f(?:ea)?t\.?\s+', primary_artist)[0].strip()
+            primary_artist = re.split(r'(?i)\s+y\s+', primary_artist)[0].strip()
+            primary_artist = re.split(r'(?i)\s+&\s+', primary_artist)[0].strip()
+            if primary_artist and primary_artist != clean_artist:
+                logger.info(f"Fallback search (primary artist): recording='{clean_title}', artist='{primary_artist}'")
+                recordings = await self.search_recordings(clean_title, primary_artist)
+        
         # Fallback 1: If no recordings found and YouTube title has any hyphens,
         # the true artist might be written in the video title instead of the channel uploader.
         if not recordings and "-" in track.youtube_title:
