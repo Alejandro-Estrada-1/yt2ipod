@@ -96,6 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Import local audio file(s) for metadata identification and tagging.",
     )
 
+    parser.add_argument(
+        "--transfer-method", "-m",
+        choices=["afc", "afc2", "usb_ssh", "wifi_ssh"],
+        default=None,
+        help="Force a specific transfer method (choices: afc, afc2, usb_ssh, wifi_ssh).",
+    )
+
     return parser
 
 
@@ -134,6 +141,8 @@ async def _handle_automatic(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         keep_temp=args.keep_temp,
     )
+    if args.transfer_method:
+        config.preferred_transfer_order = [args.transfer_method]
 
     pipeline = Pipeline(config=config)
     
@@ -175,7 +184,10 @@ async def _handle_automatic(args: argparse.Namespace) -> int:
 async def _handle_transfer(args: argparse.Namespace) -> int:
     """Transfer existing files to a connected device."""
     detector = DeviceDetector()
-    manager = TransferManager()
+    config = AppConfig()
+    if args.transfer_method:
+        config.preferred_transfer_order = [args.transfer_method]
+    manager = TransferManager(config=config)
 
     devices = await detector.detect_devices()
     if not devices:
@@ -209,6 +221,8 @@ async def _handle_import(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         keep_temp=args.keep_temp,
     )
+    if args.transfer_method:
+        config.preferred_transfer_order = [args.transfer_method]
 
     pipeline = Pipeline(config=config)
     handler = PlainCLIEventHandler(use_color=True)

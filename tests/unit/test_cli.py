@@ -90,3 +90,27 @@ def test_cli_import(mock_pipeline, tmp_path):
     exit_code = main(["--import-local", str(f)])
     assert exit_code == 0
     mock_pipeline.run.assert_called_once()
+
+
+def test_cli_transfer_method(mock_detector, mock_transfer_manager, tmp_path):
+    # Test that --transfer-method / -m restricts priority order
+    f = tmp_path / "song.mp3"
+    f.write_text("audio")
+    
+    with patch("yt2ipod.cli.TransferManager") as mock_mgr_cls:
+        mock_mgr_instance = mock_mgr_cls.return_value
+        mock_mgr_instance.transfer_files = AsyncMock(return_value=TransferResult(
+            success=True,
+            files_transferred=1,
+            duration=1.0,
+            method=MagicMock(value="usb_ssh")
+        ))
+        
+        exit_code = main(["--transfer", str(f), "-m", "usb_ssh"])
+        assert exit_code == 0
+        
+        # Verify TransferManager was instantiated with config having preferred_transfer_order = ["usb_ssh"]
+        mock_mgr_cls.assert_called_once()
+        config_arg = mock_mgr_cls.call_args[1].get("config")
+        assert config_arg is not None
+        assert config_arg.preferred_transfer_order == ["usb_ssh"]
