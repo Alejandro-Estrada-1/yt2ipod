@@ -272,3 +272,15 @@ Ensure usbmuxd is running and the device is connected via USB. On Linux:
 sudo systemctl start usbmuxd
 ```
 
+### YouTube rate limits / Age-restricted videos (Cookies)
+
+If you get blockages (e.g. `HTTP Error 429: Too Many Requests`) or try to download age-restricted music, you can optionally provide your browser's YouTube session cookies. 
+
+**This is entirely optional** and not needed under normal circumstances.
+
+1. Install a browser extension like *Get cookies.txt LOCALLY* to export your cookies in Netscape format.
+2. Save the exported file as `cookies.txt`.
+3. Pass the cookies to the application:
+   - **CLI**: Use the `--cookies cookies.txt` option.
+   - **TUI**: The application will automatically detect a `cookies.txt` file if it is located in the root directory.
+
