@@ -239,6 +239,38 @@ class Pipeline:
                         logger.debug(f"Cover Art search failed for release {rid}: {e}")
 
                 if not artwork or not artwork.is_valid:
+                    logger.info("Cover Art initial releases failed. Fetching complete recording release history from MusicBrainz...")
+                    try:
+                        rec_data = await self.musicbrainz.get_recording(track.metadata.musicbrainz_recording_id, inc="releases")
+                        full_releases = rec_data.get("releases", [])
+                        full_rids = [r.get("id") for r in full_releases if r.get("id") and r.get("id") not in tried_ids]
+                        
+                        if full_rids:
+                            logger.info(f"Found {len(full_rids)} additional release candidates to try for cover art.")
+                            for rid in full_rids:
+                                try:
+                                    tried_ids.append(rid)
+                                    temp_art = self.temp_manager.create_temp_file(suffix=".jpg")
+                                    artwork = await self.coverart.fetch_front_artwork(
+                                        rid,
+                                        track.metadata.album,
+                                        temp_art
+                                    )
+                                    if artwork and artwork.is_valid:
+                                        track.artwork_path = temp_art
+                                        track.metadata.musicbrainz_release_id = rid
+                                        event_callback(events.ArtworkFound(
+                                            width=artwork.width,
+                                            height=artwork.height,
+                                            release_id=artwork.release_id,
+                                        ))
+                                        break
+                                except Exception as e:
+                                    logger.debug(f"Cover Art fallback search failed for release {rid}: {e}")
+                    except Exception as rec_err:
+                        logger.debug(f"Failed to fetch detailed recording releases: {rec_err}")
+
+                if not artwork or not artwork.is_valid:
                     event_callback(events.ArtworkNotFound(
                         release_id=track.metadata.musicbrainz_release_id,
                         reason=f"No front artwork found in Cover Art Archive for any associated release IDs: {tried_ids}"

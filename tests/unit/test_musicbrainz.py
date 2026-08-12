@@ -386,3 +386,46 @@ class TestMusicBrainzClient:
         assert meta.album == "El Nervio del Volcán"
         assert confidence > 0.7
 
+
+    @pytest.mark.asyncio
+    @patch("urllib.request.urlopen")
+    async def test_match_track_hyphen_no_spaces(self, mock_urlopen, client):
+        mock_data_empty = {"recordings": []}
+        mock_data_success = {
+            "recordings": [
+                {
+                    "id": "rec-mentira",
+                    "title": "La mentira",
+                    "length": 210000,
+                    "artist-credit": [{"name": "Vicente Fernández", "artist": {"id": "art-chente", "name": "Vicente Fernández"}}],
+                    "releases": [
+                        {
+                            "id": "rel-chente-album",
+                            "title": "La Mentira Album",
+                            "artist-credit": [{"name": "Vicente Fernández"}],
+                            "date": "1969-01-01",
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        mock_urlopen.side_effect = [
+            create_mock_response(mock_data_empty),
+            create_mock_response(mock_data_success)
+        ]
+
+        # Hyphen without spaces in second part: "hfc34 - vicente fernandez-la mentira"
+        track = Track(
+            youtube_title="hfc34 - vicente fernandez-la mentira",
+            youtube_artist="hfc34",
+            youtube_duration=210.0
+        )
+
+        confidence, meta = await client.match_track(track)
+        
+        assert meta is not None
+        assert meta.title == "La mentira"
+        assert meta.album == "La Mentira Album"
+        assert confidence > 0.7
+

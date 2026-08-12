@@ -359,9 +359,9 @@ class MusicBrainzClient:
 
         recordings = await self.search_recordings(clean_title, clean_artist)
         
-        # Fallback 1: If no recordings found and YouTube title has ' - ',
+        # Fallback 1: If no recordings found and YouTube title has any hyphens,
         # the true artist might be written in the video title instead of the channel uploader.
-        if not recordings and " - " in track.youtube_title:
+        if not recordings and "-" in track.youtube_title:
             raw_title = track.youtube_title
             for suffix in ["(Official Video)", "[Official Audio]", "(Lyric Video)", "[Audio]",
                             "(Official Music Video)", "(Audio)", "[Official Video]",
@@ -370,7 +370,7 @@ class MusicBrainzClient:
                 raw_title = raw_title.replace(suffix, "").strip()
             
             raw_title = re.sub(r'\s*[\(\[][^\)\]]*[\)\]]', '', raw_title).strip()
-            parts = [p.strip() for p in raw_title.split(" - ") if p.strip()]
+            parts = [p.strip() for p in re.split(r'\s*[-\u2010-\u2015]\s*', raw_title) if p.strip()]
             
             if len(parts) >= 2:
                 # Try parts[-2] as artist and parts[-1] as title
