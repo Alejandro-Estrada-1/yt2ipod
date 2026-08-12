@@ -92,6 +92,9 @@ class AppConfig:
     # Metadata
     genre_fallback: str = ""
 
+    # Download cookies
+    cookies_file: Path | None = None
+
     @property
     def effective_output_dir(self) -> Path:
         """Resolved output directory (defaults to current directory)."""

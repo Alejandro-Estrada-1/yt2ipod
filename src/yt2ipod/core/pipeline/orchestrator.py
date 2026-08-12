@@ -44,7 +44,7 @@ class Pipeline:
     ) -> None:
         self.config = config or AppConfig()
         self.temp_manager = temp_manager or TemporaryFileManager()
-        self.downloader = downloader or YtDlpClient()
+        self.downloader = downloader or YtDlpClient(cookies_file=self.config.cookies_file)
         self.musicbrainz = musicbrainz or MusicBrainzClient()
         self.coverart = coverart or CoverArtArchiveClient()
         self.ffmpeg = ffmpeg or FFmpegClient()

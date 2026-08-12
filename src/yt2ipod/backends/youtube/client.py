@@ -32,13 +32,28 @@ PROGRESS_REGEX = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%\s+of\s+(?P<si
 class YtDlpClient:
     """Client for executing yt-dlp operations."""
 
-    def __init__(self, binary_path: str = "yt-dlp") -> None:
+    def __init__(self, binary_path: str = "yt-dlp", cookies_file: Path | None = None) -> None:
         """Initialize the client.
 
         Args:
             binary_path: Command or path to yt-dlp binary.
+            cookies_file: Path to a cookies file for authentication.
         """
         self.binary_path = binary_path
+        self.cookies_file = cookies_file
+
+    def _get_cookies_args(self) -> list[str]:
+        """Get the yt-dlp arguments for passing cookies if available."""
+        # 1. Use configured cookies file if specified and exists
+        if self.cookies_file is not None and self.cookies_file.exists():
+            return ["--cookies", str(self.cookies_file)]
+        
+        # 2. Automatically look for a cookies.txt file in the workspace directory
+        default_cookies = Path("cookies.txt")
+        if default_cookies.exists():
+            return ["--cookies", str(default_cookies)]
+            
+        return []
 
     async def check_dependency(self) -> None:
         """Verify yt-dlp is installed and available.
@@ -92,8 +107,7 @@ class YtDlpClient:
             "--dump-json",
             "--no-playlist",
             "--quiet",
-            url,
-        ]
+        ] + self._get_cookies_args() + [url]
 
         try:
             result = await ProcessRunner.run(cmd, check=True)
@@ -142,8 +156,7 @@ class YtDlpClient:
             "--no-playlist",
             "--newline",  # Crucial for parsing progress line-by-line
             "-o", output_template,
-            url,
-        ]
+        ] + self._get_cookies_args() + [url]
 
         logger.info(f"Starting download: {url}")
 

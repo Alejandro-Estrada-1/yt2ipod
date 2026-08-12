@@ -22,6 +22,15 @@ except ImportError as e:
     raise ImportError("textual library is not installed. Install with: pip install 'yt2ipod[tui]'") from e
 
 from yt2ipod.core.device.detection import DeviceDetector
+from yt2ipod.core.models.config import AppConfig
+from yt2ipod.interfaces.textual.screens import (
+    AboutScreen,
+    DeviceInfoScreen,
+    DownloadScreen,
+    ImportScreen,
+    SelectFilesScreen,
+    SettingsScreen,
+)
 
 MAIN_MENU = [
     "Download from YouTube",
@@ -95,6 +104,11 @@ class YT2iPodApp(App):
         super().__init__(**kwargs)
         self.nav_stack: List[str] = ["main"]
         self.detector = detector or DeviceDetector()
+        self.config = AppConfig()
+        from pathlib import Path
+        default_cookies = Path("cookies.txt")
+        if default_cookies.exists():
+            self.config.cookies_file = default_cookies
         self.menu_list: Optional[ListView] = None
 
     def compose(self) -> ComposeResult:
@@ -175,7 +189,22 @@ class YT2iPodApp(App):
             label = "Menu Item"
 
         self.nav_stack.append(label)
-        self.push_screen_placeholder(label)
+        
+        # Route to corresponding operational screens
+        if label == "Download from YouTube":
+            self.push_screen(DownloadScreen(config=self.config))
+        elif label == "Import local music":
+            self.push_screen(ImportScreen(config=self.config))
+        elif label == "Select files":
+            self.push_screen(SelectFilesScreen(config=self.config))
+        elif label == "Device Info":
+            self.push_screen(DeviceInfoScreen(detector=self.detector))
+        elif label == "Settings":
+            self.push_screen(SettingsScreen(config=self.config))
+        elif label == "About":
+            self.push_screen(AboutScreen())
+        else:
+            self.push_screen_placeholder(label)
 
     def push_screen_placeholder(self, title: str) -> None:
         self.push_screen(PlaceholderScreen(title))

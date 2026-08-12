@@ -103,6 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Force a specific transfer method (choices: afc, afc2, usb_ssh, wifi_ssh).",
     )
 
+    parser.add_argument(
+        "--cookies",
+        type=Path,
+        default=None,
+        help="Path to cookies file (e.g. cookies.txt) for YouTube download authentication.",
+    )
+
     return parser
 
 
@@ -140,6 +147,7 @@ async def _handle_automatic(args: argparse.Namespace) -> int:
     config = AppConfig(
         output_dir=args.output_dir,
         keep_temp=args.keep_temp,
+        cookies_file=args.cookies,
     )
     if args.transfer_method:
         config.preferred_transfer_order = [args.transfer_method]
@@ -220,6 +228,7 @@ async def _handle_import(args: argparse.Namespace) -> int:
     config = AppConfig(
         output_dir=args.output_dir,
         keep_temp=args.keep_temp,
+        cookies_file=args.cookies,
     )
     if args.transfer_method:
         config.preferred_transfer_order = [args.transfer_method]
