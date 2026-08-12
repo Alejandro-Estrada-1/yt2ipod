@@ -134,18 +134,24 @@ class MusicBrainzClient:
                 "Accept": "application/json",
             },
         )
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                data = response.read()
-                return json.loads(data)
-        except urllib.error.HTTPError as e:
-            if e.code == 503:
-                raise MetadataError("MusicBrainz rate limit exceeded (HTTP 503).") from e
-            raise MetadataError(f"MusicBrainz API error: HTTP {e.code}") from e
-        except urllib.error.URLError as e:
-            raise MetadataError(f"Network error connecting to MusicBrainz: {e.reason}") from e
-        except json.JSONDecodeError as e:
-            raise MetadataError("Failed to parse MusicBrainz JSON response.") from e
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                    data = response.read()
+                    return json.loads(data)
+            except urllib.error.HTTPError as e:
+                if e.code == 503 and attempt < max_retries - 1:
+                    # MusicBrainz rate limit or server overload. Wait and retry.
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                elif e.code == 503:
+                    raise MetadataError("MusicBrainz rate limit exceeded (HTTP 503) after retries.") from e
+                raise MetadataError(f"MusicBrainz API error: HTTP {e.code}") from e
+            except urllib.error.URLError as e:
+                raise MetadataError(f"Network error connecting to MusicBrainz: {e.reason}") from e
+            except json.JSONDecodeError as e:
+                raise MetadataError("Failed to parse MusicBrainz JSON response.") from e
 
     async def _async_get(self, url: str) -> Dict[str, Any]:
         """Asynchronous wrapper for _sync_get.

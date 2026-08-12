@@ -118,8 +118,8 @@ class YtDlpClient:
             data = json.loads(result.stdout)
             return Track(
                 source_url=url,
-                youtube_title=data.get("title", ""),
-                youtube_artist=data.get("uploader", ""),
+                youtube_title=data.get("track") or data.get("title", ""),
+                youtube_artist=data.get("artist") or data.get("uploader", ""),
                 youtube_duration=float(data.get("duration", 0.0)),
                 youtube_thumbnail_url=data.get("thumbnail", ""),
             )
