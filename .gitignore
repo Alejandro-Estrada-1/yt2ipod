@@ -37,3 +37,15 @@ Thumbs.db
 # yt2ipod temporary files
 *.tmp
 temp/
+
+# Downloaded audio & media
+*.mp3
+*.m4a
+*.webm
+*.opus
+*.aac
+*.wav
+*.flac
+
+# Credentials / Cookies
+cookies.txt
