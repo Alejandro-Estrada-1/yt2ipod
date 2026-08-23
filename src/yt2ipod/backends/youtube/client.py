@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -39,6 +40,10 @@ class YtDlpClient:
             binary_path: Command or path to yt-dlp binary.
             cookies_file: Path to a cookies file for authentication.
         """
+        if binary_path == "yt-dlp":
+            venv_binary = Path(sys.executable).parent / "yt-dlp"
+            if venv_binary.exists():
+                binary_path = str(venv_binary)
         self.binary_path = binary_path
         self.cookies_file = cookies_file
 
