@@ -112,6 +112,8 @@ class YtDlpClient:
             "--dump-json",
             "--no-playlist",
             "--quiet",
+            "--socket-timeout", "10",
+            "--retries", "3",
         ] + self._get_cookies_args() + [url]
 
         try:
@@ -161,6 +163,9 @@ class YtDlpClient:
             "-f", "bestaudio/best",
             "--no-playlist",
             "--newline",  # Crucial for parsing progress line-by-line
+            "--socket-timeout", "10",
+            "--retries", "3",
+            "--fragment-retries", "3",
             "-o", output_template,
         ] + self._get_cookies_args() + [url]
 
