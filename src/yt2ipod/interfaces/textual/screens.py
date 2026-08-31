@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
@@ -247,21 +248,20 @@ class DownloadScreen(Screen):
             log.clear()
 
             # Start pipeline run task
-            self.active_task = asyncio.create_task(
-                self.run_pipeline_task(url, not skip_transfer)
-            )
+            self.run_pipeline_task(url, not skip_transfer)
 
+    @work(exclusive=True)
     async def run_pipeline_task(self, url: str, transfer: bool) -> None:
-        log = self.query_one("#download-log", Log)
-        progress_bar = self.query_one("#download-progress", ProgressBar)
-        status_label = self.query_one("#download-status-text", Label)
-
         def event_callback(event) -> None:
-            # Safely handle events from any thread
+            if not self.is_mounted:
+                return
             if threading.current_thread() is threading.main_thread():
                 self.process_pipeline_event(event)
             else:
-                self.app.call_from_thread(self.process_pipeline_event, event)
+                try:
+                    self.app.call_from_thread(self.process_pipeline_event, event)
+                except RuntimeError:
+                    pass
 
         try:
             await self.pipeline.run(
@@ -269,24 +269,42 @@ class DownloadScreen(Screen):
                 output_dir=self.config.effective_output_dir,
                 event_callback=event_callback,
                 keep_temp=self.config.keep_temp,
-                transfer=transfer
+                transfer=transfer,
             )
-            status_label.update("[green]Process finished successfully![/green]")
-            self.app.notify("YouTube download and transfer completed!")
+            if self.is_mounted:
+                try:
+                    self.query_one("#download-status-text", Label).update("[green]Process finished successfully![/green]")
+                    self.app.notify("YouTube download and transfer completed!")
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            status_label.update(f"[red]Error: {e}[/red]")
-            log.write_line(f"ERROR: {e}")
-            self.app.notify(f"Process failed: {e}", severity="error")
+            if self.is_mounted:
+                try:
+                    self.query_one("#download-status-text", Label).update(f"[red]Error: {e}[/red]")
+                    self.query_one("#download-log", Log).write_line(f"ERROR: {e}")
+                    self.app.notify(f"Process failed: {e}", severity="error")
+                except Exception:
+                    pass
         finally:
-            self.query_one("#btn-download", Button).disabled = False
+            if self.is_mounted:
+                try:
+                    self.query_one("#btn-download", Button).disabled = False
+                except Exception:
+                    pass
 
     def process_pipeline_event(self, event) -> None:
-        log = self.query_one("#download-log", Log)
-        progress_bar = self.query_one("#download-progress", ProgressBar)
-        status_label = self.query_one("#download-status-text", Label)
+        if not self.is_mounted:
+            return
+        try:
+            log = self.query_one("#download-log", Log)
+            progress_bar = self.query_one("#download-progress", ProgressBar)
+            status_label = self.query_one("#download-status-text", Label)
+        except Exception:
+            return
 
         from yt2ipod.core.models import events
-        event_name = event.__class__.__name__
 
         if isinstance(event, events.DownloadStarted):
             status_label.update(f"Downloading: {event.url}")
@@ -386,20 +404,20 @@ class ImportScreen(Screen):
             self.query_one("#import-status-text", Label).update("Starting import...")
             self.query_one("#import-log", Log).clear()
 
-            self.active_task = asyncio.create_task(
-                self.run_import_task(path, not skip_transfer)
-            )
+            self.run_import_task(path, not skip_transfer)
 
+    @work(exclusive=True)
     async def run_import_task(self, path: Path, transfer: bool) -> None:
-        log = self.query_one("#import-log", Log)
-        status_label = self.query_one("#import-status-text", Label)
-
         def event_callback(event) -> None:
-            # Safely handle events from any thread
+            if not self.is_mounted:
+                return
             if threading.current_thread() is threading.main_thread():
                 self.process_import_event(event)
             else:
-                self.app.call_from_thread(self.process_import_event, event)
+                try:
+                    self.app.call_from_thread(self.process_import_event, event)
+                except RuntimeError:
+                    pass
 
         try:
             await self.pipeline.run(
@@ -407,23 +425,41 @@ class ImportScreen(Screen):
                 output_dir=self.config.effective_output_dir,
                 event_callback=event_callback,
                 keep_temp=self.config.keep_temp,
-                transfer=transfer
+                transfer=transfer,
             )
-            status_label.update("[green]Import completed successfully![/green]")
-            self.app.notify("Music file imported and processed!")
+            if self.is_mounted:
+                try:
+                    self.query_one("#import-status-text", Label).update("[green]Import completed successfully![/green]")
+                    self.app.notify("Music file imported and processed!")
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            status_label.update(f"[red]Error: {e}[/red]")
-            log.write_line(f"ERROR: {e}")
-            self.app.notify(f"Import failed: {e}", severity="error")
+            if self.is_mounted:
+                try:
+                    self.query_one("#import-status-text", Label).update(f"[red]Error: {e}[/red]")
+                    self.query_one("#import-log", Log).write_line(f"ERROR: {e}")
+                    self.app.notify(f"Import failed: {e}", severity="error")
+                except Exception:
+                    pass
         finally:
-            self.query_one("#btn-import", Button).disabled = False
+            if self.is_mounted:
+                try:
+                    self.query_one("#btn-import", Button).disabled = False
+                except Exception:
+                    pass
 
     def process_import_event(self, event) -> None:
-        log = self.query_one("#import-log", Log)
-        status_label = self.query_one("#import-status-text", Label)
+        if not self.is_mounted:
+            return
+        try:
+            log = self.query_one("#import-log", Log)
+            status_label = self.query_one("#import-status-text", Label)
+        except Exception:
+            return
 
         from yt2ipod.core.models import events
-        event_name = event.__class__.__name__
 
         if isinstance(event, events.ConversionStarted):
             status_label.update("Converting audio...")
@@ -472,13 +508,19 @@ class SelectFilesScreen(Screen):
     async def on_mount(self) -> None:
         await self.refresh_files()
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-transfer-selected":
-            await self.transfer_selected_files()
+            self.transfer_selected_files()
 
     async def refresh_files(self) -> None:
-        status_label = self.query_one("#select-scan-status", Label)
-        table = self.query_one("#files-table", DataTable)
+        if not self.is_mounted:
+            return
+        try:
+            status_label = self.query_one("#select-scan-status", Label)
+            table = self.query_one("#files-table", DataTable)
+        except Exception:
+            return
+
         table.clear(columns=True)
         
         out_dir = self.config.effective_output_dir
@@ -503,7 +545,12 @@ class SelectFilesScreen(Screen):
 
     def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
         # Toggle checkbox state when row is clicked
-        table = self.query_one("#files-table", DataTable)
+        if not self.is_mounted:
+            return
+        try:
+            table = self.query_one("#files-table", DataTable)
+        except Exception:
+            return
         row_key = event.row_key
         if row_key is None:
             return
@@ -512,9 +559,15 @@ class SelectFilesScreen(Screen):
         new_val = "[X]" if current_val == "[ ]" else "[ ]"
         table.update_cell(row_key, "Sync", new_val)
 
+    @work(exclusive=True)
     async def transfer_selected_files(self) -> None:
-        status_label = self.query_one("#select-scan-status", Label)
-        table = self.query_one("#files-table", DataTable)
+        if not self.is_mounted:
+            return
+        try:
+            status_label = self.query_one("#select-scan-status", Label)
+            table = self.query_one("#files-table", DataTable)
+        except Exception:
+            return
         
         # Gather all rows where "Sync" is [X]
         selected_paths: list[Path] = []
@@ -538,23 +591,33 @@ class SelectFilesScreen(Screen):
         device = devices[0]
         status_label.update(f"Transferring {len(selected_paths)} file(s) to {device.model}...")
         
-        btn = self.query_one("#btn-transfer-selected", Button)
-        btn.disabled = True
+        try:
+            self.query_one("#btn-transfer-selected", Button).disabled = True
+        except Exception:
+            pass
 
         try:
             result = await self.transfer_manager.transfer_files(selected_paths, device)
-            if result.success:
-                self.app.notify(f"Transferred {len(selected_paths)} file(s) successfully!")
-                status_label.update(f"[green]Successfully transferred {len(selected_paths)} file(s) via {result.method.display_name}![/green]")
-                # Reset selections
-                for row_key in table.rows:
-                    table.update_cell(row_key, "Sync", "[ ]")
-            else:
-                err_msg = "; ".join(result.errors) if result.errors else "Unknown error"
-                self.app.notify(f"Transfer failed: {err_msg}", severity="error")
-                status_label.update(f"[red]Transfer failed: {err_msg}[/red]")
+            if self.is_mounted:
+                if result.success:
+                    self.app.notify(f"Transferred {len(selected_paths)} file(s) successfully!")
+                    status_label.update(f"[green]Successfully transferred {len(selected_paths)} file(s) via {result.method.display_name}![/green]")
+                    # Reset selections
+                    for row_key in table.rows:
+                        table.update_cell(row_key, "Sync", "[ ]")
+                else:
+                    err_msg = "; ".join(result.errors) if result.errors else "Unknown error"
+                    self.app.notify(f"Transfer failed: {err_msg}", severity="error")
+                    status_label.update(f"[red]Transfer failed: {err_msg}[/red]")
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            self.app.notify(f"Transfer error: {e}", severity="error")
-            status_label.update(f"[red]Transfer error: {e}[/red]")
+            if self.is_mounted:
+                self.app.notify(f"Transfer error: {e}", severity="error")
+                status_label.update(f"[red]Transfer error: {e}[/red]")
         finally:
-            btn.disabled = False
+            if self.is_mounted:
+                try:
+                    self.query_one("#btn-transfer-selected", Button).disabled = False
+                except Exception:
+                    pass
