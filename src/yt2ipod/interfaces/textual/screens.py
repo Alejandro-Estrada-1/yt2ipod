@@ -379,6 +379,19 @@ class ImportScreen(Screen):
                 yield Button("Browse File...", variant="primary", id="btn-browse-import-file")
                 yield Button("Browse Folder...", variant="primary", id="btn-browse-import-dir")
 
+            yield Label("Forced Transfer Method (Optional):")
+            yield Select(
+                options=[
+                    ("Automatic Selection", "auto"),
+                    ("USB / AFC (Standard)", "afc"),
+                    ("USB / AFC2 (Jailbroken Root)", "afc2"),
+                    ("USB / SSH (Jailbroken)", "usb_ssh"),
+                    ("Wi-Fi / SSH (Jailbroken)", "wifi_ssh"),
+                ],
+                value="auto",
+                id="import-transfer-method-select",
+            )
+
             yield Checkbox("Skip device transfer (tag local files only)", value=False, id="import-skip-transfer")
             
             yield Button("Import and Tag", variant="success", id="btn-import")
@@ -426,6 +439,12 @@ class ImportScreen(Screen):
             else:
                 self.app.notify(f"Invalid path: {path_str}", severity="error")
                 return
+
+            method = self.query_one("#import-transfer-method-select", Select).value
+            if method and method != "auto":
+                self.config.preferred_transfer_order = [method]
+            else:
+                self.config.preferred_transfer_order = ["afc", "afc2", "usb_ssh", "wifi_ssh"]
 
             skip_transfer = self.query_one("#import-skip-transfer", Checkbox).value
 
@@ -546,6 +565,7 @@ class SelectFilesScreen(Screen):
         self.config = config or AppConfig()
         self.transfer_manager = TransferManager(config=self.config)
         self.detector = DeviceDetector()
+        self.selected_files: set[Path] = set()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -560,6 +580,20 @@ class SelectFilesScreen(Screen):
                 yield Button("Default Dir", id="btn-reload-dir")
             yield Label("Scanning output directory for MP3 files...", id="select-scan-status")
             yield DataTable(id="files-table")
+            
+            yield Label("Forced Transfer Method (Optional):")
+            yield Select(
+                options=[
+                    ("Automatic Selection", "auto"),
+                    ("USB / AFC (Standard)", "afc"),
+                    ("USB / AFC2 (Jailbroken Root)", "afc2"),
+                    ("USB / SSH (Jailbroken)", "usb_ssh"),
+                    ("Wi-Fi / SSH (Jailbroken)", "wifi_ssh"),
+                ],
+                value="auto",
+                id="select-transfer-method-select",
+            )
+
             yield Button("Transfer Selected Files", variant="success", id="btn-transfer-selected")
         yield Footer()
 
@@ -603,6 +637,7 @@ class SelectFilesScreen(Screen):
         elif btn_id == "btn-clear-table":
             if self.is_mounted:
                 try:
+                    self.selected_files.clear()
                     table = self.query_one("#files-table", DataTable)
                     table.clear()
                     self.query_one("#select-scan-status", Label).update("[yellow]Table cleared.[/yellow]")
@@ -615,9 +650,18 @@ class SelectFilesScreen(Screen):
         if not self.is_mounted:
             return
         try:
+            from textual.coordinate import Coordinate
+
             table = self.query_one("#files-table", DataTable)
-            for row_key in table.rows:
-                table.update_cell(row_key, "Sync", state)
+            if state == "[X]":
+                for row_key in table.rows:
+                    val = row_key.value if hasattr(row_key, "value") else row_key
+                    self.selected_files.add(Path(str(val)))
+            else:
+                self.selected_files.clear()
+
+            for row_idx in range(table.row_count):
+                table.update_cell_at(Coordinate(row_idx, 0), state)
         except Exception:
             pass
 
@@ -633,6 +677,8 @@ class SelectFilesScreen(Screen):
             for f in paths:
                 if str(f) in existing_keys:
                     continue
+                if checked:
+                    self.selected_files.add(f)
                 size_mb = f.stat().st_size / (1024 * 1024) if f.exists() else 0.0
                 table.add_row("[X]" if checked else "[ ]", f.name, f"{size_mb:.2f} MB", str(f.parent), key=str(f))
         except Exception:
@@ -647,6 +693,7 @@ class SelectFilesScreen(Screen):
         except Exception:
             return
 
+        self.selected_files.clear()
         table.clear(columns=True)
         table.add_columns("Sync", "File Name", "Size", "Folder")
 
@@ -669,16 +716,26 @@ class SelectFilesScreen(Screen):
         if not self.is_mounted:
             return
         try:
-            table = self.query_one("#files-table", DataTable)
-        except Exception:
-            return
-        row_key = event.row_key
-        if row_key is None:
-            return
+            from textual.coordinate import Coordinate
 
-        current_val = table.get_cell(row_key, "Sync")
-        new_val = "[X]" if current_val == "[ ]" else "[ ]"
-        table.update_cell(row_key, "Sync", new_val)
+            table = self.query_one("#files-table", DataTable)
+            row_key = event.row_key
+            if row_key is None:
+                return
+
+            row_val = row_key.value if hasattr(row_key, "value") else row_key
+            path = Path(str(row_val))
+
+            if path in self.selected_files:
+                self.selected_files.remove(path)
+                new_val = "[ ]"
+            else:
+                self.selected_files.add(path)
+                new_val = "[X]"
+
+            table.update_cell_at(Coordinate(event.coordinate.row, 0), new_val)
+        except Exception:
+            pass
 
     @work(exclusive=True)
     async def transfer_selected_files(self) -> None:
@@ -686,20 +743,21 @@ class SelectFilesScreen(Screen):
             return
         try:
             status_label = self.query_one("#select-scan-status", Label)
-            table = self.query_one("#files-table", DataTable)
         except Exception:
             return
 
-        selected_paths: list[Path] = []
-        for row_key in table.rows:
-            sync_val = table.get_cell(row_key, "Sync")
-            if sync_val == "[X]":
-                val = row_key.value if hasattr(row_key, "value") else row_key
-                selected_paths.append(Path(str(val)))
+        selected_paths = [p for p in self.selected_files if p.exists()]
 
         if not selected_paths:
             self.app.notify("Please select at least one file to transfer", severity="warning")
             return
+
+        # Configure transfer method order
+        method = self.query_one("#select-transfer-method-select", Select).value
+        if method and method != "auto":
+            self.config.preferred_transfer_order = [method]
+        else:
+            self.config.preferred_transfer_order = ["afc", "afc2", "usb_ssh", "wifi_ssh"]
 
         status_label.update("Scanning for connected devices...")
         devices = await self.detector.detect_devices()
@@ -724,8 +782,7 @@ class SelectFilesScreen(Screen):
                     status_label.update(
                         f"[green]Successfully transferred {len(selected_paths)} file(s) via {result.method.display_name}![/green]"
                     )
-                    for row_key in table.rows:
-                        table.update_cell(row_key, "Sync", "[ ]")
+                    self.set_all_checkboxes("[ ]")
                 else:
                     err_msg = "; ".join(result.errors) if result.errors else "Unknown error"
                     self.app.notify(f"Transfer failed: {err_msg}", severity="error")
