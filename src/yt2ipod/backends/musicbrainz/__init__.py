@@ -1,0 +1,1 @@
+"""MusicBrainz metadata API client."""

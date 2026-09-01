@@ -1,0 +1,1 @@
+"""Artwork discovery and validation."""

@@ -1,0 +1,12 @@
+{
+  "recordings": [
+    {
+      "id": "5306a0c7-6afe-4ffc-8db7-35eb26af042d",
+      "title": "La magia",
+      "length": 245373,
+      "artist-credit": [
+        { "artist": { "id": "artist-lj-id", "name": "Little Jesus" }, "name": "Little Jesus" }
+      ]
+    }
+  ]
+}
