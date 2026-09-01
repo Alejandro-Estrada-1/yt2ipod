@@ -17,15 +17,17 @@ It is **not** an iTunes replacement or an iMazing clone. It is a focused tool bu
 
 ## Features
 
-- **Automatic pipeline**: `./yt2ipod "URL"` does everything
-- **Interactive mode**: Textual TUI with menu navigation
-- **Plain mode**: `--plain` and `--json` for automation
-- **Multiple transfer methods**: AFC, AFC2, USB-SSH, Wi-Fi SSH
-- **Correct metadata**: MusicBrainz identification with scoring
-- **Correct artwork**: Cover Art Archive with release-linked validation
-- **Local file import**: Process existing MP3 files
-- **Cross-platform**: macOS, Linux, Termux
-- **Extensible**: Modular architecture with pluggable backends
+- **Automatic pipeline**: `./yt2ipod "URL"` downloads, converts, tags, and syncs
+- **Interactive mode**: Rich Textual TUI with full keyboard and mouse navigation
+- **Batch folder import**: Import and tag entire folders of audio files (`.mp3`, `.wav`, `.m4a`, `.flac`, etc.) in one command
+- **Native GUI file pickers**: Visual file and directory dialogs (via `zenity`) in desktop environments
+- **Plain mode**: `--plain` and `--json` for CLI scripts and headless automation
+- **Multiple transfer backends**: AFC (Standard USB), AFC2 (Jailbroken USB Root), USB-SSH, Wi-Fi SSH
+- **Forced transfer selection**: Choose automatic detection or force a specific transfer protocol
+- **Accurate metadata**: MusicBrainz integration with smart scoring, noise cleaning, and demo/live version penalties
+- **Official artwork**: High-resolution album covers from Cover Art Archive
+- **Cross-platform**: macOS, Linux, Termux (Android)
+- **Extensible**: Modular architecture with pluggable adapters
 
 ## Architecture
 
@@ -48,11 +50,11 @@ The core never knows which platform or interface is running. Interfaces receive 
 
 ## Supported Devices
 
-The architecture supports any legacy Apple device. The first test device is:
+The architecture supports any legacy Apple device. The primary test devices include:
 
 - iPod touch 5G (iOS 9.3.5, 32-bit)
-
-Planned support includes iPod touch 1G–7G and legacy iPhones.
+- iPod touch 1G–7G
+- Legacy iPhones (iPhone 2G, 3G, 3GS, 4, 4S, 5, etc.)
 
 ## Requirements
 
@@ -73,6 +75,7 @@ These are **not** Python packages — install them via your system package manag
 | usbmuxd | USB communication | For USB device detection |
 | libimobiledevice | iOS device info | For device detection |
 | ifuse | AFC mounting | For AFC transport |
+| zenity | Native GUI file/folder chooser | Optional (Linux Desktop) |
 
 #### macOS (Homebrew)
 
@@ -89,19 +92,19 @@ pkg install python yt-dlp ffmpeg openssh libjpeg-turbo libtiff freetype libimobi
 #### Debian/Ubuntu
 
 ```bash
-sudo apt install yt-dlp ffmpeg openssh-client usbmuxd libimobiledevice-utils ifuse
+sudo apt install yt-dlp ffmpeg openssh-client usbmuxd libimobiledevice-utils ifuse zenity
 ```
 
 #### Arch Linux
 
 ```bash
-sudo pacman -S yt-dlp ffmpeg openssh usbmuxd libimobiledevice ifuse
+sudo pacman -S yt-dlp ffmpeg openssh usbmuxd libimobiledevice ifuse zenity
 ```
 
 #### Fedora
 
 ```bash
-sudo dnf install yt-dlp ffmpeg openssh usbmuxd libimobiledevice ifuse
+sudo dnf install yt-dlp ffmpeg openssh usbmuxd libimobiledevice ifuse zenity
 ```
 
 ## Installation
@@ -126,17 +129,23 @@ To uninstall, simply run:
 
 ## Usage
 
-### Automatic mode
+### Automatic mode (YouTube)
 
 ```bash
 ./yt2ipod "https://youtu.be/VIDEO_ID"
 ```
 
-### Interactive mode
+### Interactive mode (TUI)
 
 ```bash
 ./yt2ipod
 ```
+
+Inside the TUI:
+- **Download from YouTube**: Download, tag, and transfer in one step with dynamic transfer method selector.
+- **Import Local Music**: Choose a single file or an entire folder of songs (`.wav`, `.m4a`, `.mp3`, `.flac`), identify metadata on MusicBrainz, fetch album covers, tag, and transfer in batch.
+- **Select Files to Transfer**: Visually pick existing `.mp3` files from any directory or folder and sync them directly to your device.
+- **Device Info**: View connected iPod/iPhone status, serial number, iOS version, and available transfer interfaces.
 
 ### Plain mode (no TUI)
 
@@ -150,16 +159,20 @@ To uninstall, simply run:
 ./yt2ipod "URL" --json
 ```
 
-### Transfer existing files
+### Transfer existing MP3 files directly
 
 ```bash
-./yt2ipod --transfer file1.mp3 file2.mp3
+./yt2ipod --transfer song1.mp3 song2.mp3
 ```
 
-### Import local music
+### Import and tag local music (file or directory batch)
 
 ```bash
-./yt2ipod --import-local song.mp3
+# Single file
+./yt2ipod --import-local song.wav
+
+# Entire folder (batch import)
+./yt2ipod --import-local ~/Music/MyAlbum/
 ```
 
 ### Options
@@ -168,11 +181,12 @@ To uninstall, simply run:
 |------|-------------|
 | `--plain` | Plain terminal output (no TUI) |
 | `--json` | JSON output for automation |
-| `--output-dir DIR` | Output directory |
-| `--keep-temp` | Keep temporary files (debugging) |
-| `--no-transfer` | Prepare files, skip transfer |
-| `--transfer FILE...` | Transfer existing files to device |
-| `--import-local FILE...` | Import and process local audio |
+| `--output-dir DIR` | Output directory for downloaded/processed MP3s |
+| `--keep-temp` | Keep temporary intermediate files (for debugging) |
+| `--no-transfer` | Process audio and tag locally, skip device transfer |
+| `--transfer FILE...` | Transfer existing MP3 files directly to device |
+| `--import-local PATH...`| Import and process local audio file or folder |
+| `--cookies FILE` | Optional path to `cookies.txt` for YouTube |
 | `--version` | Show version |
 
 ## Transfer Methods
@@ -184,7 +198,7 @@ To uninstall, simply run:
 | USB-SSH | USB | usbmuxd, OpenSSH, jailbreak |
 | Wi-Fi SSH | Wi-Fi | OpenSSH, jailbreak |
 
-The transfer manager automatically selects the best available method.
+The transfer manager automatically selects the best available method, or you can force a specific method directly in the TUI dropdown.
 
 ## Development
 
