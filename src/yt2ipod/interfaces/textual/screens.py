@@ -21,6 +21,7 @@ from yt2ipod.core.models.config import AppConfig
 from yt2ipod.core.models.transfer import TransferMethod
 from yt2ipod.core.pipeline import Pipeline
 from yt2ipod.core.transfer.manager import TransferManager
+from yt2ipod.utils.dialogs import is_gui_dialog_available, pick_directory_dialog, pick_files_dialog
 
 if TYPE_CHECKING:
     from textual.app import App
@@ -360,40 +361,70 @@ class DownloadScreen(Screen):
 
 
 class ImportScreen(Screen):
-    """Screen for importing and tagging local music files."""
+    """Screen for importing and tagging local music files or entire folders."""
 
     def __init__(self, config: AppConfig | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self.config = config or AppConfig()
         self.pipeline = Pipeline(config=self.config)
-        self.active_task: asyncio.Task | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with ScrollableContainer(id="import-container"):
-            yield Label("Import Local Music", id="import-title")
+            yield Label("Import Local Music (Tag & Transfer)", id="import-title")
             
-            yield Label("Local File Path:")
-            yield Input(placeholder="/path/to/song.wav or .mp3", id="import-file-path")
-            
-            yield Checkbox("Skip device transfer (tag local file only)", value=False, id="import-skip-transfer")
+            yield Label("Local File or Folder Path:")
+            yield Input(placeholder="/path/to/song.wav or /path/to/folder", id="import-file-path")
+            with Horizontal(id="import-browse-row"):
+                yield Button("Browse File...", variant="primary", id="btn-browse-import-file")
+                yield Button("Browse Folder...", variant="primary", id="btn-browse-import-dir")
+
+            yield Checkbox("Skip device transfer (tag local files only)", value=False, id="import-skip-transfer")
             
             yield Button("Import and Tag", variant="success", id="btn-import")
             
             yield Label("", id="import-status-text")
+            yield ProgressBar(id="import-progress", show_percentage=True, show_eta=False)
             yield Log(id="import-log")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-import":
+        btn_id = event.button.id
+        if btn_id == "btn-browse-import-file":
+            selected = pick_files_dialog(title="Select Audio File to Import", multiple=False)
+            if selected:
+                self.query_one("#import-file-path", Input).value = str(selected[0])
+            elif not is_gui_dialog_available():
+                self.app.notify("GUI file chooser not available in terminal/SSH session", severity="warning")
+
+        elif btn_id == "btn-browse-import-dir":
+            selected_dir = pick_directory_dialog(title="Select Music Directory to Import")
+            if selected_dir:
+                self.query_one("#import-file-path", Input).value = str(selected_dir)
+            elif not is_gui_dialog_available():
+                self.app.notify("GUI directory chooser not available in terminal/SSH session", severity="warning")
+
+        elif btn_id == "btn-import":
             path_str = self.query_one("#import-file-path", Input).value.strip()
             if not path_str:
-                self.app.notify("Please enter a valid file path", severity="warning")
+                self.app.notify("Please enter or select a valid file/folder path", severity="warning")
                 return
 
-            path = Path(path_str)
+            path = Path(path_str).expanduser().resolve()
             if not path.exists():
-                self.app.notify(f"File not found: {path_str}", severity="error")
+                self.app.notify(f"Path not found: {path_str}", severity="error")
+                return
+
+            audio_extensions = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma", ".alac"}
+            if path.is_file():
+                files = [path]
+            elif path.is_dir():
+                files = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in audio_extensions]
+                if not files:
+                    self.app.notify(f"No audio files found in: {path_str}", severity="warning")
+                    return
+            else:
+                self.app.notify(f"Invalid path: {path_str}", severity="error")
                 return
 
             skip_transfer = self.query_one("#import-skip-transfer", Checkbox).value
@@ -401,13 +432,14 @@ class ImportScreen(Screen):
             btn = self.query_one("#btn-import", Button)
             btn.disabled = True
 
-            self.query_one("#import-status-text", Label).update("Starting import...")
+            self.query_one("#import-status-text", Label).update(f"Starting import for {len(files)} file(s)...")
+            self.query_one("#import-progress", ProgressBar).update(total=len(files), progress=0)
             self.query_one("#import-log", Log).clear()
 
-            self.run_import_task(path, not skip_transfer)
+            self.run_import_task(files, not skip_transfer)
 
     @work(exclusive=True)
-    async def run_import_task(self, path: Path, transfer: bool) -> None:
+    async def run_import_task(self, files: list[Path], transfer: bool) -> None:
         def event_callback(event) -> None:
             if not self.is_mounted:
                 return
@@ -419,36 +451,56 @@ class ImportScreen(Screen):
                 except RuntimeError:
                     pass
 
-        try:
-            await self.pipeline.run(
-                url_or_path=str(path),
-                output_dir=self.config.effective_output_dir,
-                event_callback=event_callback,
-                keep_temp=self.config.keep_temp,
-                transfer=transfer,
-            )
-            if self.is_mounted:
-                try:
-                    self.query_one("#import-status-text", Label).update("[green]Import completed successfully![/green]")
-                    self.app.notify("Music file imported and processed!")
-                except Exception:
-                    pass
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            if self.is_mounted:
-                try:
-                    self.query_one("#import-status-text", Label).update(f"[red]Error: {e}[/red]")
-                    self.query_one("#import-log", Log).write_line(f"ERROR: {e}")
-                    self.app.notify(f"Import failed: {e}", severity="error")
-                except Exception:
-                    pass
-        finally:
-            if self.is_mounted:
-                try:
-                    self.query_one("#btn-import", Button).disabled = False
-                except Exception:
-                    pass
+        total = len(files)
+        success_count = 0
+        fail_count = 0
+
+        for idx, file_path in enumerate(files, start=1):
+            if not self.is_mounted:
+                break
+            try:
+                self.query_one("#import-status-text", Label).update(
+                    f"[{idx}/{total}] Processing: {file_path.name}"
+                )
+                self.query_one("#import-log", Log).write_line(f"\n--- [{idx}/{total}] Importing: {file_path.name} ---")
+
+                await self.pipeline.run(
+                    url_or_path=str(file_path),
+                    output_dir=self.config.effective_output_dir,
+                    event_callback=event_callback,
+                    keep_temp=self.config.keep_temp,
+                    transfer=transfer,
+                )
+                success_count += 1
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                fail_count += 1
+                if self.is_mounted:
+                    try:
+                        self.query_one("#import-log", Log).write_line(f"[!] Error on {file_path.name}: {e}")
+                    except Exception:
+                        pass
+            finally:
+                if self.is_mounted:
+                    try:
+                        self.query_one("#import-progress", ProgressBar).update(progress=idx)
+                    except Exception:
+                        pass
+
+        if self.is_mounted:
+            try:
+                status_msg = f"[green]Import finished: {success_count} succeeded[/green]"
+                if fail_count > 0:
+                    status_msg += f", [red]{fail_count} failed[/red]"
+                self.query_one("#import-status-text", Label).update(status_msg)
+                self.app.notify(f"Import finished! {success_count}/{total} files processed.")
+            except Exception:
+                pass
+            try:
+                self.query_one("#btn-import", Button).disabled = False
+            except Exception:
+                pass
 
     def process_import_event(self, event) -> None:
         if not self.is_mounted:
@@ -484,11 +536,10 @@ class ImportScreen(Screen):
             log.write_line(f"[+] Transfer completed successfully")
         elif isinstance(event, events.CleanupCompleted):
             log.write_line(f"[+] Cleaned up temporary files")
-            status_label.update("Ready.")
 
 
 class SelectFilesScreen(Screen):
-    """Screen for selecting and transferring existing local MP3 files."""
+    """Screen for selecting and transferring existing local MP3 files from any directory."""
 
     def __init__(self, config: AppConfig | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -500,6 +551,13 @@ class SelectFilesScreen(Screen):
         yield Header(show_clock=True)
         with ScrollableContainer(id="select-container"):
             yield Label("Select Files to Transfer", id="select-title")
+            with Horizontal(id="select-actions-row"):
+                yield Button("Browse Files (GUI)...", variant="primary", id="btn-browse-files")
+                yield Button("Add Folder...", id="btn-add-folder")
+                yield Button("Select All", id="btn-select-all")
+                yield Button("Deselect All", id="btn-deselect-all")
+                yield Button("Clear", id="btn-clear-table")
+                yield Button("Default Dir", id="btn-reload-dir")
             yield Label("Scanning output directory for MP3 files...", id="select-scan-status")
             yield DataTable(id="files-table")
             yield Button("Transfer Selected Files", variant="success", id="btn-transfer-selected")
@@ -509,8 +567,76 @@ class SelectFilesScreen(Screen):
         await self.refresh_files()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-transfer-selected":
+        btn_id = event.button.id
+        if btn_id == "btn-transfer-selected":
             self.transfer_selected_files()
+        elif btn_id == "btn-browse-files":
+            selected = pick_files_dialog(
+                title="Select MP3 Files to Transfer",
+                multiple=True,
+                file_filter="MP3 Audio (*.mp3) | *.mp3",
+            )
+            if selected:
+                self.add_files_to_table(selected, checked=True)
+                self.query_one("#select-scan-status", Label).update(
+                    f"[green]Added {len(selected)} file(s) from file browser[/green]"
+                )
+            elif not is_gui_dialog_available():
+                self.app.notify("GUI file chooser not available in terminal/SSH session", severity="warning")
+        elif btn_id == "btn-add-folder":
+            folder = pick_directory_dialog(title="Select Folder with MP3 Files")
+            if folder:
+                mp3s = list(folder.glob("*.mp3")) + list(folder.glob("*.MP3"))
+                if mp3s:
+                    self.add_files_to_table(mp3s, checked=True)
+                    self.query_one("#select-scan-status", Label).update(
+                        f"[green]Added {len(mp3s)} MP3 file(s) from folder: {folder.name}[/green]"
+                    )
+                else:
+                    self.app.notify(f"No MP3 files found in {folder}", severity="warning")
+            elif not is_gui_dialog_available():
+                self.app.notify("GUI directory chooser not available in terminal/SSH session", severity="warning")
+        elif btn_id == "btn-select-all":
+            self.set_all_checkboxes("[X]")
+        elif btn_id == "btn-deselect-all":
+            self.set_all_checkboxes("[ ]")
+        elif btn_id == "btn-clear-table":
+            if self.is_mounted:
+                try:
+                    table = self.query_one("#files-table", DataTable)
+                    table.clear()
+                    self.query_one("#select-scan-status", Label).update("[yellow]Table cleared.[/yellow]")
+                except Exception:
+                    pass
+        elif btn_id == "btn-reload-dir":
+            self.run_worker(self.refresh_files())
+
+    def set_all_checkboxes(self, state: str) -> None:
+        if not self.is_mounted:
+            return
+        try:
+            table = self.query_one("#files-table", DataTable)
+            for row_key in table.rows:
+                table.update_cell(row_key, "Sync", state)
+        except Exception:
+            pass
+
+    def add_files_to_table(self, paths: list[Path], checked: bool = True) -> None:
+        if not self.is_mounted:
+            return
+        try:
+            table = self.query_one("#files-table", DataTable)
+            if not table.columns:
+                table.add_columns("Sync", "File Name", "Size", "Folder")
+
+            existing_keys = set(str(k.value) if hasattr(k, "value") else str(k) for k in table.rows)
+            for f in paths:
+                if str(f) in existing_keys:
+                    continue
+                size_mb = f.stat().st_size / (1024 * 1024) if f.exists() else 0.0
+                table.add_row("[X]" if checked else "[ ]", f.name, f"{size_mb:.2f} MB", str(f.parent), key=str(f))
+        except Exception:
+            pass
 
     async def refresh_files(self) -> None:
         if not self.is_mounted:
@@ -522,29 +648,24 @@ class SelectFilesScreen(Screen):
             return
 
         table.clear(columns=True)
-        
+        table.add_columns("Sync", "File Name", "Size", "Folder")
+
         out_dir = self.config.effective_output_dir
         if not out_dir.exists():
             status_label.update("[yellow]Output directory does not exist yet.[/yellow]")
             return
 
-        mp3_files = list(out_dir.glob("*.mp3"))
+        mp3_files = list(out_dir.glob("*.mp3")) + list(out_dir.glob("*.MP3"))
         if not mp3_files:
-            status_label.update(f"[yellow]No MP3 files found in: {out_dir}[/yellow]")
+            status_label.update(f"[yellow]No MP3 files found in default output: {out_dir}[/yellow]")
             return
 
-        status_label.update(f"[green]Found {len(mp3_files)} MP3 file(s) in output directory[/green]")
-        
-        # Setup columns (Select checkbox represented by text, File Name, Size)
-        table.add_columns("Sync", "File Name", "Size")
-        
-        for idx, f in enumerate(mp3_files):
+        status_label.update(f"[green]Found {len(mp3_files)} MP3 file(s) in default directory[/green]")
+        for f in mp3_files:
             size_mb = f.stat().st_size / (1024 * 1024)
-            # Row ID is stored as file absolute path
-            table.add_row("[ ]", f.name, f"{size_mb:.2f} MB", key=str(f))
+            table.add_row("[ ]", f.name, f"{size_mb:.2f} MB", str(f.parent), key=str(f))
 
     def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
-        # Toggle checkbox state when row is clicked
         if not self.is_mounted:
             return
         try:
@@ -554,7 +675,7 @@ class SelectFilesScreen(Screen):
         row_key = event.row_key
         if row_key is None:
             return
-            
+
         current_val = table.get_cell(row_key, "Sync")
         new_val = "[X]" if current_val == "[ ]" else "[ ]"
         table.update_cell(row_key, "Sync", new_val)
@@ -568,19 +689,18 @@ class SelectFilesScreen(Screen):
             table = self.query_one("#files-table", DataTable)
         except Exception:
             return
-        
-        # Gather all rows where "Sync" is [X]
+
         selected_paths: list[Path] = []
         for row_key in table.rows:
             sync_val = table.get_cell(row_key, "Sync")
             if sync_val == "[X]":
-                selected_paths.append(Path(str(row_key.value)))
+                val = row_key.value if hasattr(row_key, "value") else row_key
+                selected_paths.append(Path(str(val)))
 
         if not selected_paths:
             self.app.notify("Please select at least one file to transfer", severity="warning")
             return
 
-        # Find connected devices
         status_label.update("Scanning for connected devices...")
         devices = await self.detector.detect_devices()
         if not devices:
@@ -590,7 +710,7 @@ class SelectFilesScreen(Screen):
 
         device = devices[0]
         status_label.update(f"Transferring {len(selected_paths)} file(s) to {device.model}...")
-        
+
         try:
             self.query_one("#btn-transfer-selected", Button).disabled = True
         except Exception:
@@ -601,8 +721,9 @@ class SelectFilesScreen(Screen):
             if self.is_mounted:
                 if result.success:
                     self.app.notify(f"Transferred {len(selected_paths)} file(s) successfully!")
-                    status_label.update(f"[green]Successfully transferred {len(selected_paths)} file(s) via {result.method.display_name}![/green]")
-                    # Reset selections
+                    status_label.update(
+                        f"[green]Successfully transferred {len(selected_paths)} file(s) via {result.method.display_name}![/green]"
+                    )
                     for row_key in table.rows:
                         table.update_cell(row_key, "Sync", "[ ]")
                 else:
